@@ -1,0 +1,4 @@
+package cn.edu.lostfound.controller;
+import cn.edu.lostfound.dto.*; import cn.edu.lostfound.service.AuthService;
+import jakarta.validation.Valid; import org.springframework.web.bind.annotation.*;
+@RestController @RequestMapping("/api/auth") public class AuthController { private final AuthService auth; public AuthController(AuthService auth){this.auth=auth;} @PostMapping("/register") public ApiResponse<Void> register(@Valid @RequestBody AuthDtos.Register r){auth.register(r);return ApiResponse.ok(null);} @PostMapping("/login") public ApiResponse<?> login(@Valid @RequestBody AuthDtos.Login r){return ApiResponse.ok(auth.login(r));} @PostMapping("/logout") public ApiResponse<Void> logout(@RequestHeader(value="X-Token",required=false)String token){auth.logout(token);return ApiResponse.ok(null);} }
