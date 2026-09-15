@@ -1,0 +1,70 @@
+name: campus-lost-found-local
+
+services:
+  redis:
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    ports:
+      - "127.0.0.1:16379:6379"
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - ""
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - noeviction
+    mem_limit: 128m
+    memswap_limit: 128m
+    restart: "no"
+    volumes:
+      - redis-dev-data:/data
+    networks:
+      - redis-dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  redis-test:
+    profiles: [integration]
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    ports:
+      - "127.0.0.1:16380:6379"
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --save
+      - ""
+      - --maxmemory
+      - 32mb
+      - --maxmemory-policy
+      - noeviction
+    mem_limit: 96m
+    memswap_limit: 96m
+    restart: "no"
+    # The image declares /data as a volume. A tmpfs mount prevents an anonymous
+    # persistent volume even though Redis snapshotting and AOF are disabled.
+    tmpfs:
+      - /data:size=16m
+    networks:
+      - redis-test
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  redis-dev-data:
+
+networks:
+  redis-dev:
+  redis-test:

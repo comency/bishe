@@ -1,0 +1,23 @@
+# Opt in explicitly. Never fall back to development credentials or Redis.
+server:
+  address: 127.0.0.1
+  port: 18080
+spring:
+  datasource:
+    url: jdbc:mysql://127.0.0.1:13306/lost_found_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${TEST_DB_USERNAME}
+    password: ${TEST_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 16380
+      database: 0
+      username: ${TEST_REDIS_USERNAME:}
+      password: ${TEST_REDIS_PASSWORD:}
+app:
+  admin-password: ${TEST_ADMIN_PASSWORD:}
+ai:
+  enabled: false

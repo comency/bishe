@@ -1,0 +1,7 @@
+# Shared defaults in application.yml are local-development defaults.
+# Secrets come from the terminal or IDE, never from this file.
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
