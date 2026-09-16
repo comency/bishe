@@ -3,6 +3,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { request } from '../api'
 import { safeReturnTo } from '../router'
+import PublicInstructions from '../components/PublicInstructions.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -44,6 +45,7 @@ async function submit() {
       <RouterLink to="/login" class="back-link">← 返回登录</RouterLink>
       <span class="tiny-label">加入校园互助</span><h1>注册一个新账号</h1>
       <p class="muted">仅用于本地开发测试，请使用合成信息。</p>
+      <PublicInstructions />
       <form class="auth-form" @submit.prevent="submit">
         <label for="register-username">用户名 <small>3–40 个字符</small></label>
         <input id="register-username" v-model="username" required minlength="3" maxlength="40" autocomplete="username" :disabled="busy" />
@@ -56,7 +58,7 @@ async function submit() {
         <p v-if="error" class="error-message" role="alert">{{ error }}</p>
         <button type="submit" class="primary-button auth-submit" :disabled="busy">{{ busy ? '正在注册…' : '注册账号' }}<span aria-hidden="true">→</span></button>
       </form>
-      <div class="development-note"><strong>注册 ≠ 校园认证</strong><p>人工在校身份审核尚未开发。此页不会自动认证、授予管理员权限或收集在校证明。</p></div>
+      <div class="development-note"><strong>注册 ≠ 校园认证</strong><p>注册后请登录并提交校园核验申请。管理员人工审核通过且资格有效后，才可进入失物招领业务。</p></div>
     </div>
   </section>
 </template>

@@ -1,15 +1,30 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { request } from './api'
 import { useAuthStore } from './stores/auth'
 import { safeReturnTo } from './router'
+import { useConfigStore } from './stores/config'
 
 const auth = useAuthStore()
+const settings = useConfigStore()
 const router = useRouter()
 const route = useRoute()
 const signingOut = ref(false)
 const initials = computed(() => auth.session?.nickname.slice(0, 1) ?? '拾')
+let expiryTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => { void settings.load(); expiryTimer = setInterval(auth.checkExpiry, 1000) })
+onBeforeUnmount(() => clearInterval(expiryTimer))
+
+watch(() => auth.canUseBusiness, allowed => {
+  if (!allowed && auth.hasSession && route.meta.requiresVerification) void router.replace('/verification')
+})
+watch(() => auth.revision, () => {
+  if (auth.hasSession && route.meta.requiresVerification && !auth.canUseBusiness) void router.replace('/verification')
+})
+watch(() => auth.isAdmin, allowed => {
+  if (!allowed && auth.hasSession && route.meta.requiresAdmin) void router.replace('/verification')
+})
 
 watch(() => auth.session?.token, (token, previous) => {
   if (!token && previous && route.meta.requiresAuth) {
@@ -41,13 +56,19 @@ async function signOut() {
       </RouterLink>
       <p class="nav-caption">校园里的每一份善意</p>
       <nav>
-        <RouterLink to="/items" class="nav-link"><span aria-hidden="true">▦</span> 物品大厅</RouterLink>
-        <span class="nav-disabled"><span aria-hidden="true">＋</span> 发布信息 <small>待开发</small></span>
-        <span class="nav-disabled"><span aria-hidden="true">◇</span> 我的认领 <small>待开发</small></span>
-        <span class="nav-disabled"><span aria-hidden="true">✓</span> 校园认证 <small>待开发</small></span>
+        <RouterLink v-if="auth.canUseBusiness" to="/items" class="nav-link"><span aria-hidden="true">▦</span> 物品大厅</RouterLink>
+        <template v-if="auth.hasSession">
+          <RouterLink to="/verification" class="nav-link"><span aria-hidden="true">✓</span> 校园认证</RouterLink>
+          <RouterLink to="/profile" class="nav-link"><span aria-hidden="true">◇</span> 本人资料</RouterLink>
+          <RouterLink v-if="auth.isAdmin" to="/admin/verifications" class="nav-link"><span aria-hidden="true">▤</span> 人工认证审核</RouterLink>
+        </template>
+        <template v-else>
+          <RouterLink to="/login" class="nav-link">登录</RouterLink>
+          <RouterLink to="/register" class="nav-link">注册账号</RouterLink>
+        </template>
       </nav>
       <div class="sidebar-note">
-        <span class="tiny-label">一期 · 开发基线</span>
+        <span class="tiny-label">一期 · 人工校园核验</span>
         <p>让遗失的物品，<br />找到回去的路。</p>
         <small>当前仅用于本地开发联调，<br />请勿输入真实校园个人信息。</small>
       </div>
@@ -64,9 +85,10 @@ async function signOut() {
         <span v-else class="environment-badge"><i aria-hidden="true"></i> 本地开发环境</span>
       </header>
       <main id="main-content" class="main-content">
-        <RouterView :key="auth.session?.token ?? 'guest'" />
+        <p v-if="settings.config?.isTest" class="environment-notice" role="note">测试校园 · 请使用合成信息。测试核验不代表真实在校身份。</p>
+        <RouterView v-if="(!route.meta.requiresAuth || auth.hasSession) && (!route.meta.requiresVerification || auth.canUseBusiness) && (!route.meta.requiresAdmin || auth.isAdmin)" :key="route.meta.guest ? 'guest' : auth.session?.token ?? 'guest'" />
       </main>
-      <footer>校园失物招领智能管理系统 <span>一期建设中 · 人工身份审核尚未接入</span></footer>
+      <footer>校园失物招领智能管理系统 <span>人工核验准入 · 校园互助</span></footer>
     </div>
   </div>
 </template>

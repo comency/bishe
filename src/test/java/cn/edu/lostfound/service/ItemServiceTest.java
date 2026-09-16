@@ -5,6 +5,8 @@ import cn.edu.lostfound.entity.Item;
 import cn.edu.lostfound.entity.User;
 import cn.edu.lostfound.repository.ItemRepository;
 import cn.edu.lostfound.repository.UserRepository;
+import cn.edu.lostfound.verification.VerificationApi;
+import cn.edu.lostfound.identity.AccountApi;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,7 +25,8 @@ import static org.mockito.Mockito.*;
 class ItemServiceTest {
     private final ItemRepository items = mock(ItemRepository.class);
     private final UserRepository users = mock(UserRepository.class);
-    private final ItemService service = new ItemService(items, users);
+    private final VerificationApi verification = mock(VerificationApi.class);
+    private final ItemService service = new ItemService(items, users, verification, mock(AccountApi.class));
     private final ItemDtos.Save edit = new ItemDtos.Save(
             "找到校园卡", "图书馆捡到校园卡", "FOUND", "证件", "图书馆", LocalDate.of(2026, 9, 15));
     private Item item;
@@ -65,15 +68,11 @@ class ItemServiceTest {
     }
 
     @Test
-    void administratorCanEditOtherUsersItemsWithoutLosingApproval() {
+    void administratorCannotBypassOwnershipOnParticipantEndpoint() {
         item.setStatus("APPROVED");
-        when(items.save(any(Item.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        Item updated = service.update(10L, 2L, true, edit);
-
-        assertThat(updated.getStatus()).isEqualTo("APPROVED");
-        assertThat(updated.getType()).isEqualTo("FOUND");
-        verify(items).save(item);
+        assertThatThrownBy(() -> service.update(10L, 2L, true, edit)).isInstanceOf(SecurityException.class);
+        assertThat(item.getStatus()).isEqualTo("APPROVED");
+        verify(items, never()).save(any());
     }
 
     @ParameterizedTest
@@ -97,12 +96,9 @@ class ItemServiceTest {
     }
 
     @Test
-    void administratorCanMatchOtherUsersPrivateItems() {
-        when(items.search("", "FOUND")).thenReturn(List.of());
-
-        assertThat(service.matches(10L, 2L, true)).isEmpty();
-
-        verify(items).search("", "FOUND");
+    void administratorCannotUseParticipantMatchingToReadPrivateItems() {
+        assertThatThrownBy(() -> service.matches(10L, 2L, true)).isInstanceOf(SecurityException.class);
+        verify(items, never()).search(any(), any());
     }
 
     @Test

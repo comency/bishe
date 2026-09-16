@@ -33,7 +33,7 @@ onBeforeUnmount(() => { ++requestNumber; controller?.abort(); items.value = [] }
 <template>
   <section class="items-page">
     <div class="page-heading"><div><span class="eyebrow">CAMPUS LOST &amp; FOUND</span><h1>物品大厅</h1><p class="muted">多一份留意，让失物早一点回家。</p></div><span class="outline-badge">本地联调 · 非正式开放</span></div>
-    <div class="development-banner"><strong>一期建设中</strong><span>这里读取现有后端的已审核物品。人工校园认证、详情、发布表单与认领交接尚未接入；当前列表不代表正式权限验收通过。</span></div>
+    <div class="development-banner"><strong>校园资格有效</strong><span>进入大厅已核实最新资格，每次请求由服务端再次校验。详情、发布与认领交接将在后续阶段接入。</span></div>
     <form class="search-panel" @submit.prevent="load">
       <div class="search-field"><label for="item-keyword">查找物品</label><input id="item-keyword" v-model="keyword" type="search" maxlength="100" placeholder="试试物品名称或描述中的特征" /></div>
       <div class="type-field"><label for="item-type">信息类型</label><select id="item-type" v-model="type"><option value="">全部类型</option><option value="LOST">寻物启事</option><option value="FOUND">招领启事</option></select></div>

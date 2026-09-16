@@ -1,11 +1,10 @@
-import { createRequest } from '../lib/request'
+import type { RequestOptions } from '../lib/request'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
 
-export const request = createRequest({
-  getToken: () => useAuthStore(pinia).session?.token,
-  onUnauthorized: () => useAuthStore(pinia).clear('登录已失效，请重新登录。'),
-})
+export function request<T>(path: string, options?: RequestOptions): Promise<T> {
+  return useAuthStore(pinia).client<T>(path, options)
+}
 
 export interface ItemSummary {
   id: number

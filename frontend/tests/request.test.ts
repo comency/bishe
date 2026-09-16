@@ -79,13 +79,40 @@ describe('API client', () => {
         return jsonResponse({ code: 0, message: 'success', data: ['private old data'] }, status)
       }),
     })
-    await expect(request('/api/items')).rejects.toThrow('会话已切换')
+    await expect(request('/api/items')).rejects.toThrow('会话或资格已变化')
     expect(onUnauthorized).not.toHaveBeenCalled()
   })
 
   it('shows a connection failure without converting it into successful empty data', async () => {
     const request = createRequest({ getToken: () => undefined, onUnauthorized: vi.fn(), fetcher: vi.fn<typeof fetch>().mockRejectedValue(new TypeError('offline')) })
     await expect(request('/api/items')).rejects.toThrow('暂时无法连接后端服务')
+  })
+
+  it('distinguishes eligibility 403 from object permissions and retains trace context', async () => {
+    const onVerificationRequired = vi.fn()
+    const onUnauthorized = vi.fn()
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ code: -1, message: '需认证', data: null, errorCode: 'VERIFICATION_REQUIRED', traceId: 'synthetic-trace' }, 403))
+      .mockResolvedValueOnce(jsonResponse({ code: -1, message: '无对象权限', data: null, errorCode: 'FORBIDDEN' }, 403))
+    const request = createRequest({ getToken: () => 'same-token', onUnauthorized, onVerificationRequired, fetcher })
+    await expect(request('/api/items')).rejects.toMatchObject({ status: 403, errorCode: 'VERIFICATION_REQUIRED', traceId: 'synthetic-trace' })
+    expect(onVerificationRequired).toHaveBeenCalledOnce()
+    await expect(request('/api/admin/verifications')).rejects.toMatchObject({ errorCode: 'FORBIDDEN' })
+    expect(onVerificationRequired).toHaveBeenCalledOnce()
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  it('rejects a late business response after eligibility changes, even with the same token', async () => {
+    let revision = 1
+    const request = createRequest({ getToken: () => 'same-token', getSessionRevision: () => revision, onUnauthorized: vi.fn(),
+      fetcher: vi.fn<typeof fetch>().mockImplementation(async () => { revision++; return jsonResponse({ code: 0, message: 'success', data: ['old private data'] }) }) })
+    await expect(request('/api/items')).rejects.toThrow('会话或资格已变化')
+  })
+
+  it('reports a 409 as requiring a fresh read, without replaying the request', async () => {
+    const { request, fetcher } = makeClient(jsonResponse({ code: -1, message: '版本已变化', data: null, errorCode: 'VERSION_CONFLICT' }, 409))
+    await expect(request('/api/users/me', { method: 'PUT', body: { expectedVersion: 0 } })).rejects.toMatchObject({ status: 409, errorCode: 'VERSION_CONFLICT' })
+    expect(fetcher).toHaveBeenCalledOnce()
   })
 
   it('aborts on timeout and warns that write results remain unknown, with no retries', async () => {

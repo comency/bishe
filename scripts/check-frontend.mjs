@@ -111,16 +111,16 @@ try {
   await until("!!document.querySelector('.error-message')");
   await check('real invalid credentials show an error without navigation', "location.pathname === '/login' && document.querySelector('.error-message').textContent.length > 0");
   await login(process.env.ADMIN_PASSWORD);
-  await until("location.pathname === '/items' && !!document.querySelector('.state-panel h3') && !document.querySelector('.spinner')");
-  await check('real login and proxy load the empty dev hall', "!!document.querySelector('.items-page') && !document.querySelector('.error-state') && document.querySelector('.state-panel h3').textContent.includes('没有找到')");
+  await until("location.pathname === '/admin/verifications' && !!document.querySelector('.identity-page') && !document.querySelector('.spinner')");
+  await check('administrator enters separate verification management', "!!document.querySelector('.identity-page') && document.querySelector('h1').textContent.includes('认证')");
   await check('password is not stored in sessionStorage', `!JSON.stringify({...sessionStorage}).includes(${JSON.stringify(process.env.ADMIN_PASSWORD)})`);
-  await screenshot('hall-desktop', 1440, 1000);
-  await screenshot('hall-mobile', 375, 812);
-  const queriesBeforeRefresh = responses.filter(r => r.path === '/api/items').length;
+  await screenshot('admin-desktop', 1440, 1000);
+  await screenshot('admin-mobile', 375, 812);
+  const queriesBeforeRefresh = responses.filter(r => r.path === '/api/users/me').length;
   await reload();
-  await until("location.pathname === '/items' && !!document.querySelector('.state-panel h3') && !document.querySelector('.spinner')");
-  await check('refresh retains session and revalidates through protected API', "!!document.querySelector('.items-page') && !document.querySelector('.error-state')");
-  if (responses.filter(r => r.path === '/api/items').length <= queriesBeforeRefresh) throw new Error('Refresh did not issue a new protected API request.');
+  await until("location.pathname === '/admin/verifications' && !!document.querySelector('.identity-page') && !document.querySelector('.spinner')");
+  await check('refresh retains session and revalidates through protected API', "!!document.querySelector('.identity-page') && !document.querySelector('.error-message')");
+  if (responses.filter(r => r.path === '/api/users/me').length <= queriesBeforeRefresh) throw new Error('Refresh did not issue a new protected API request.');
   checks.push('refresh issued a new real protected API request');
   // Invalidate only this browser's session, then let a real HTTP 401 drive the UI.
   await evaluate(`(async()=>{const session=JSON.parse(sessionStorage.getItem('${sessionKey}'));const r=await fetch('/api/auth/logout',{method:'POST',headers:{'X-Token':session.token}});if(!r.ok)throw Error('logout failed')})()`);
@@ -128,7 +128,7 @@ try {
   await until("location.pathname === '/login' && !!document.querySelector('#login-password')");
   await check('real 401 clears local token and returns to login', `sessionStorage.getItem('${sessionKey}') === null`);
   await login(process.env.ADMIN_PASSWORD);
-  await until("location.pathname === '/items' && !!document.querySelector('.account button')");
+  await until("location.pathname === '/admin/verifications' && !!document.querySelector('.account button')");
   await evaluate("document.querySelector('.account button').click()");
   await until("location.pathname === '/login' && !!document.querySelector('#login-password')");
   await check('UI logout clears session', `sessionStorage.getItem('${sessionKey}') === null`);
@@ -136,8 +136,8 @@ try {
   await until("!!document.querySelector('.not-found')");
   await check('404 route has a usable fallback', "!!document.querySelector('.not-found a')");
   if (exceptions.length || external.length) throw new Error('Unexpected browser exception or external request.');
-  if (!responses.some(r => r.path === '/api/auth/login' && r.status === 400) || !responses.some(r => r.path === '/api/items' && r.status === 401)) throw new Error('Expected real error responses were not observed.');
-  checks.push('no uncaught browser exceptions or external HTTP requests', 'real login HTTP 400 and protected HTTP 401 observed');
+  if (!responses.some(r => r.path === '/api/auth/login' && r.status === 401) || !responses.some(r => r.path === '/api/users/me' && r.status === 401)) throw new Error('Expected real error responses were not observed.');
+  checks.push('no uncaught browser exceptions or external HTTP requests', 'real credential HTTP 401 and protected HTTP 401 observed');
   await writeFile(join(output, 'result.json'), JSON.stringify({ checks, responses, externalRequests: external.length, browserExceptions: exceptions.length }, null, 2));
   console.log(`PASS: ${checks.length} real-browser assertions; four responsive screenshots saved to .local/browser-check/.`);
 } catch (error) {

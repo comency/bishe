@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { request } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { safeReturnTo } from '../router'
+import PublicInstructions from '../components/PublicInstructions.vue'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -28,7 +29,8 @@ async function submit() {
     if (controller.signal.aborted) return
     auth.signIn(data)
     password.value = ''
-    await router.replace(safeReturnTo(route.query.returnTo))
+    // Cached role only selects a destination; the router always loads /users/me before entry.
+    await router.replace(auth.session?.role === 'ADMIN' ? '/admin/verifications' : safeReturnTo(route.query.returnTo))
   } catch (failure) {
     if (!controller.signal.aborted) error.value = failure instanceof Error ? failure.message : '登录失败，请稍后重试。'
   } finally { busy.value = false }
@@ -51,7 +53,7 @@ async function submit() {
     <div class="auth-card">
       <span class="tiny-label">欢迎回来</span>
       <h2>登录校园拾光</h2>
-      <p class="muted">登录后，开始查找失物与招领信息。</p>
+      <p class="muted">登录并完成在校身份人工核验后，使用校园互助服务。</p>
       <p v-if="auth.notice" class="notice" role="status">{{ auth.notice }}</p>
       <p v-if="route.query.registered === '1'" class="notice" role="status">注册成功，请使用新账号登录。注册不代表在校身份验证通过。</p>
       <form class="auth-form" @submit.prevent="submit">
@@ -63,7 +65,7 @@ async function submit() {
         <button class="primary-button auth-submit" type="submit" :disabled="busy">{{ busy ? '正在登录…' : '登录' }}<span aria-hidden="true">→</span></button>
       </form>
       <p class="auth-switch">还没有账号？ <RouterLink :to="{ name: 'register', query: { returnTo: safeReturnTo(route.query.returnTo) } }">注册账号</RouterLink></p>
-      <div class="development-note"><strong>开发基线说明</strong><p>当前使用真实登录接口。在校身份人工审核将在下一阶段接入；登录成功不代表已经获得在校身份认证。本版本不得面向真实校园开放。</p></div>
+      <PublicInstructions />
     </div>
   </section>
 </template>

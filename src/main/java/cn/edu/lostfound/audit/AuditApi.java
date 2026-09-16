@@ -1,0 +1,32 @@
+package cn.edu.lostfound.audit;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Set;
+import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+/** Whitelisted verification events, appended in the caller's transaction; never accepts evidence. */
+@Service
+public class AuditApi {
+  private static final Set<String> EVENTS=Set.of("VERIFICATION_SUBMITTED","VERIFICATION_APPROVED",
+      "VERIFICATION_REJECTED","VERIFICATION_REVOKED","VERIFICATION_REOPENED");
+  private final JdbcTemplate jdbc;
+  private final Clock clock;
+  public AuditApi(JdbcTemplate jdbc,Clock clock) { this.jdbc=jdbc;this.clock=clock; }
+
+  @Transactional(propagation=Propagation.MANDATORY)
+  public void verification(String event,Long actorId,boolean admin,Long subjectUserId,Long applicationId,
+      String fromState,String toState,long version,String reason) {
+    if(!EVENTS.contains(event)) throw new IllegalArgumentException("Unsupported audit event");
+    jdbc.update("""
+        INSERT INTO business_logs(event_type,actor_id,actor_kind,subject_user_id,verification_application_id,
+        from_state,to_state,object_version,user_reason,trace_id,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,event,actorId,admin?"ADMIN":"USER",subjectUserId,applicationId,fromState,toState,version,
+        reason,UUID.randomUUID().toString(),LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC));
+  }
+}

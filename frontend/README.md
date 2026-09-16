@@ -1,12 +1,10 @@
-# 校园拾光 · 前端开发基线
+# 校园拾光 · 账号与人工在校身份审核
 
-这是实际 Vue 前端基础工程，不是此前的离线 HTML 原型。仅供本机开发联调；人工在校身份审核、发布/详情/认领/管理页面尚未实现，不能将当前版本对真实校园开放。
+实际 Vue 3 / Pinia / Vue Router 前端，沿用暖白与深绿的响应式界面。当前已接入账号、本人资料与人工校园核验；发布、详情、内容审核与认领交接页面留待后续批次。当前配置为本地测试校园，只使用合成数据，不能把测试核验当作真实学校认可的在校身份。
 
 ## 环境与命令
 
-已固定 Node.js `22.18.0`、npm `10.9.3`（见 `.nvmrc`、`package.json`）。直接依赖使用精确版本，提交 `package-lock.json`；依赖仅安装在本目录，不全局升级工具。IDE 建议使用 Vue - Official 扩展。
-
-在本目录执行：
+固定 Node.js `22.18.0`、npm `10.9.3`；依赖锁定在本目录，不全局升级工具。在本目录执行：
 
 ```powershell
 npm ci
@@ -14,34 +12,42 @@ npm run verify
 npm run dev
 ```
 
-- 开发地址：`http://127.0.0.1:5174`。仅监听回环地址；端口已被占用即失败，不自动切到其他端口。
-- `/api` 开发代理到 `http://127.0.0.1:8080`，保留 `/api` 前缀；后端未启动时仍可打开登录/注册页，但真实请求会显示失败。
-- `npm run type-check`：Vue/TypeScript 类型检查。
-- `npm run lint`：ESLint 检查，警告也视为失败。
-- `npm run test:unit`：请求、会话、路由测试，不连接数据库或真实后端。
-- `npm run build`：类型检查与静态构建，输出到 `dist/`。
-- `npm run preview`：仅用于本地检查构建产物，地址 `http://127.0.0.1:4174`，继承上述 `/api` 代理；不是正式部署方式。生产部署需要独立配置同源 `/api` 反向代理和 SPA 回退，并优先匹配 API 规则，不能把 API 404 回退为 HTML。
+- `npm run dev`：`http://127.0.0.1:5174`，`/api` 代理至 `http://127.0.0.1:8080`。
+- `npm run dev:integration`：隔离联调地址 `http://127.0.0.1:15174`，`/api` 仅代理至隔离后端 `http://127.0.0.1:18080`。须先按仓库脚本启动 integration 后端；此模式不连接日常开发后端、不占用商城的 `15175` 端口。
+- 两种开发模式均仅监听回环地址，端口占用时直接失败，不自动改端口。
+- `npm run verify`：依次执行 ESLint、Vitest、Vue/TypeScript 类型检查和 Vite 构建。
+- `npm run test:unit`：请求、会话、资格到期与路由测试，使用合成数据，不连接真实后端或数据库。
+- `npm run preview`：本地静态产物预览，`http://127.0.0.1:4174`，默认 `/api` 代理至 `8080`。不是正式部署方式。
 
-## 当前对接范围
+生产环境需独立配置同源 `/api` 反向代理和 SPA 回退，API 路径优先，不能把 API 错误回退成页面 HTML。
 
-| 页面 / 动作 | 实际后端接口 | 说明 |
+## 已接入页面与契约
+
+| 页面 / 动作 | 接口 | 关键行为 |
 | --- | --- | --- |
-| 注册 | `POST /api/auth/register` | username/password/nickname；成功后回登录，不自动认证 |
-| 登录 | `POST /api/auth/login` | 读取 token/userId/username/nickname/role |
-| 退出 | `POST /api/auth/logout` | 成功或失败均清理本机凭证；失败明确说明服务端注销未确认 |
-| 大厅查询 | `GET /api/items?keyword=...&type=...` | 当前列表接口未分页，不冒用设计稿的 `/page` |
+| 公开说明 | `GET /api/public/config` | 校园名、时区、测试标识、人工核验指引与支持渠道来自配置 |
+| 注册、登录、退出 | `/api/auth/register`、`/login`、`/logout` | 注册不自动认证；登录后读取当前资格；退出清除本机会话 |
+| 本人资料 `/profile` | `GET/PUT /api/users/me` | 修改 nickname/contact，提交 users.version；联系方式可清空 |
+| 本人认证 `/verification` | `GET/POST /api/verifications/me` | 当前资格、分页申请历史；未认证、驳回、到期可新申请；待审禁止重复提交；撤销等待管理员允许重核 |
+| 管理队列 `/admin/verifications` | `GET /api/admin/verifications` | 状态、关键词、精确账号 ID 筛选和分页，动态展示到期 |
+| 管理详情 `/admin/verifications/:userId` | `GET /api/admin/verifications/{userId}` | 当前申请及受控历史，内部依据与面向本人原因分开 |
+| 审核、撤销、允许重核 | 管理详情的 `/review`、`/revoke`、`/reopen` | 非自审；通过必填方式、依据、有效至；驳回/撤销/重核必填原因 |
+| 物品大厅 `/items` | `GET /api/items` | 沿用现有列表，已收紧到有效校园资格；尚未切换未来分页契约 |
 
-无 `/me` 接口，因此刷新后的本地会话仅用于导航提示；每次业务请求仍由后端鉴权。不能把本地 Token、缓存昵称或 role 当作当前在校身份或权限证明。下一阶段接入本人资料与人工校园认证后，应按正式需求收紧业务路由。
+申请轮次 `applicationVersion` 与资格行版本 `summary.version` 分开。审核携带当前 `applicationId` 与资格行 `expectedVersion`；撤销/重核只携带资格行版本和原因。有效至日期包含当天，后端按校园时区转换到次日零点。历史通过结论不因到期或撤销被覆盖，允许重核不直接恢复通过。
 
-## 会话与错误约定
+## 会话、权限与异步处理
 
-- 通用请求位于 `src/lib/request.ts`，使用 `X-Token`，仅向本站 `/api/` 路径发送凭证，禁止跟随 HTTP 重定向；同时检查 HTTP 状态和 `ApiResponse.code === 0`。
-- HTTP 401 / 明确的业务 401 清理会话并回登录；403 显示无权访问，不反复登录绕过。
-- 凭证只保存在 Pinia 内存和带项目命名空间的 `sessionStorage`；不存密码，不用 `localStorage`，不把 Token 放到 URL。浏览器脚本能访问 sessionStorage，生产阶段仍需要 XSS 防护与 HTTPS。
-- 请求 10 秒超时，不自动重试写操作；写超时提示结果待确认。账号切换后丢弃旧响应，列表重新查询时取消旧请求，退出会卸载并清空大厅。
-- `returnTo` 只允许已经存在的 `/items` 本地路由；其余返回地址统一降级到大厅。
-- 加载、空数据、服务故障分开显示；页面没有伪造统计、示例物品或默认测试密码。
+- `sessionStorage` 只保存最小登录信息供展示，不保存密码、本人联系方式、核验材料或认证结论。客户端缓存 role、Token 均不能授予权限。
+- 每次进入受保护路由读取 `GET /api/users/me`；普通业务要求当前有效认证。管理员进入管理页面只需当前管理身份，进入普通大厅仍需校园认证。
+- 页面停留时动态判断排他截止点，到期卸载普通业务视图；后端仍对每次业务请求即时鉴权。
+- 请求只向本站 `/api/` 发送 `X-Token`，禁止凭证放进 URL，禁止跟随 HTTP 重定向，同时检查 HTTP 状态与响应 code。
+- 401 清会话并回登录。403 + `VERIFICATION_REQUIRED` 清除当前资格与旧业务显示并去认证页；其他 403 仅显示无权限。409 清除旧编辑上下文、查询最新资料后提示重新决定，不自动重放操作。
+- 使用请求序号、取消信号及会话/资格修订号，丢弃旧分页、旧账号或资格已失效后的迟到响应。超时或连接中断的写请求提示先查询结果。
+- `returnTo` 仅允许已实现的本站大厅、资料、认证及认证管理路由，目标页仍重新鉴权。
 
-## 文档依据
+## 验证与范围
 
-依照此前 06 页面设计的暖白/深绿布局，并核对 [Vue 官方入门](https://vuejs.org/guide/quick-start.html)、[Vite 服务选项](https://vite.dev/config/server-options.html)、[Vue Router 导航守卫](https://router.vuejs.org/guide/advanced/navigation-guards.html) 与 [Pinia 组件外使用](https://pinia.vuejs.org/core-concepts/outside-component-usage.html)。当前实现范围以仓库已有接口为准，设计稿中的未来接口并未因此实现。
+`npm run verify` 覆盖 72 项单元测试，包括安全跳转、最新资格守卫、未认证管理员、伪造缓存角色、401/403/409、乱序响应和准确到期边界，并通过严格类型检查与生产构建。浏览器真实联调记录以项目验证记录为准；单测不是学校真实核验或正式上线验收。
+
+实现依据：项目文档 04、05、06、08、09（API-01 至 API-13）与 10。未添加证件图片上传、学校名单批量导入、自助修改认证结论、管理员自审或真实个人资料。

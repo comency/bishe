@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomBytes } from 'node:crypto';
 
-// Legacy-contract regression only: this does not test campus verification or claims.
+// Legacy item regression after the mandatory campus-identity admission step.
 // Never accept a configurable host, and never follow redirects with test credentials.
 const BASE_URL = 'http://127.0.0.1:18080';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -11,9 +11,11 @@ Requires Node.js 22+ and TEST_ADMIN_PASSWORD in the process environment.
 The existing integration administrator username is admin; no password is supplied
 by this script. The only permitted backend is http://127.0.0.1:18080.
 
-This opt-in test creates one synthetic user and one item in the integration
-database. It exercises the CURRENT legacy API, not the planned campus-identity
-or claim workflow. It does not delete records, flush Redis, or change containers.
+This opt-in test creates one synthetic user, its synthetic verification, and one
+item in the integration database. It checks isTest before writing, approves only
+its own new synthetic identity, then exercises the legacy item workflow. Use
+check-identity-api.mjs for the complete identity lifecycle. Claims are not tested.
+It does not delete records, flush Redis, or change containers.
 It attempts to log out both sessions in finally, even after a failed assertion.
 Passwords, tokens, request bodies, and response bodies are never printed or saved.
 Record identifiers are printed for a later, separately authorized cleanup.
@@ -47,7 +49,7 @@ function isId(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
-async function request(method, path, { token, body, status = 200 } = {}) {
+async function request(method, path, { token, body, status = 200, errorCode } = {}) {
   const url = new URL(path, BASE_URL);
   check(url.origin === BASE_URL && url.pathname.startsWith('/api/'), 'fixed test origin');
   const headers = { Accept: 'application/json' };
@@ -77,7 +79,11 @@ async function request(method, path, { token, body, status = 200 } = {}) {
   check(result.code === (status === 200 ? 0 : -1), 'HTTP and business code agree');
   check(typeof result.message === 'string', 'response message exists');
   check(Object.hasOwn(result, 'data'), 'response data exists');
-  if (status !== 200) check(result.data === null, 'error response has null data');
+  if (status !== 200) {
+    check(result.data === null, 'error response has null data');
+    check(typeof result.traceId === 'string' && result.traceId.length > 0, 'error trace identifier');
+    if (errorCode) check(result.errorCode === errorCode, `error code is ${errorCode}`);
+  }
   return result.data;
 }
 
@@ -132,8 +138,12 @@ async function runSmoke() {
   let cleanupFailed = false;
 
   try {
+    step('public config identifies a synthetic test environment');
+    const config = await request('GET', '/api/public/config');
+    check(isObject(config) && config.isTest === true, 'refuse writes outside a test environment');
+
     step('legacy contract: no token is rejected');
-    await request('GET', '/api/items', { status: 401 });
+    await request('GET', '/api/items', { status: 401, errorCode: 'AUTH_REQUIRED' });
 
     step('register synthetic user');
     registrationAttempted = true;
@@ -152,6 +162,56 @@ async function runSmoke() {
     userId = login.userId;
     check(login.username === username && login.role === 'USER', 'ordinary account identity and role');
     const userToken = sessions.get('user');
+    check(login.verification?.status === 'UNVERIFIED', 'new account is unverified');
+
+    step('unverified ordinary account cannot enter item or AI business');
+    await request('GET', '/api/items', {
+      token: userToken, status: 403, errorCode: 'VERIFICATION_REQUIRED',
+    });
+    await request('POST', '/api/ai/chat', {
+      token: userToken, body: { question: 'Synthetic admission check' },
+      status: 403, errorCode: 'VERIFICATION_REQUIRED',
+    });
+
+    step('log in existing test administrator');
+    const adminLogin = await request('POST', '/api/auth/login', {
+      body: { username: 'admin', password: adminPassword },
+    });
+    if (isObject(adminLogin) && typeof adminLogin.token === 'string' && adminLogin.token.length > 0) {
+      sessions.set('admin', adminLogin.token);
+    }
+    check(sessions.has('admin'), 'administrator login returns a token');
+    check(adminLogin.username === 'admin' && adminLogin.role === 'ADMIN', 'administrator role');
+    if (adminLogin.verification?.status !== 'VERIFIED') {
+      await request('GET', '/api/items', {
+        token: sessions.get('admin'), status: 403, errorCode: 'VERIFICATION_REQUIRED',
+      });
+    }
+
+    step('submit and approve only the newly created synthetic identity');
+    const pending = await request('POST', '/api/verifications/me', {
+      token: userToken,
+      body: {
+        expectedVersion: login.verification.version,
+        realName: 'Synthetic Smoke Applicant',
+        statement: 'Synthetic integration fixture; not a real campus identity.',
+      },
+    });
+    check(pending.summary?.status === 'PENDING', 'identity submission awaits manual review');
+    check(isId(pending.currentApplication?.id), 'identity application identifier');
+    const verified = await request('POST', `/api/admin/verifications/${userId}/review`, {
+      token: sessions.get('admin'),
+      body: {
+        applicationId: pending.currentApplication.id,
+        expectedVersion: pending.summary.version,
+        decision: 'APPROVED',
+        method: 'IN_PERSON',
+        evidenceSummary: 'Synthetic test-only identity fixture; no real evidence or identity.',
+        validThrough: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10),
+      },
+    });
+    check(verified.summary?.status === 'VERIFIED' && verified.summary.isTest === true,
+      'manual approval grants explicitly synthetic identity');
 
     step('ordinary user cannot access administrator listing');
     await request('GET', '/api/admin/items/pending', { token: userToken, status: 403 });
@@ -171,27 +231,18 @@ async function runSmoke() {
     const pendingSearch = await request('GET', searchPath, { token: userToken });
     check(findItem(pendingSearch, itemId) === undefined, 'pending item is not publicly listed');
 
-    step('log in existing test administrator');
-    const adminLogin = await request('POST', '/api/auth/login', {
-      body: { username: 'admin', password: adminPassword },
-    });
-    if (isObject(adminLogin) && typeof adminLogin.token === 'string' && adminLogin.token.length > 0) {
-      sessions.set('admin', adminLogin.token);
-    }
-    check(sessions.has('admin'), 'administrator login returns a token');
-    check(adminLogin.username === 'admin' && adminLogin.role === 'ADMIN', 'administrator role');
-
     step('administrator approves only the newly created item');
     const approved = await request('PUT', `/api/admin/items/${itemId}/review`, {
-      token: sessions.get('admin'), body: { status: 'APPROVED' },
+      token: sessions.get('admin'),
+      body: { status: 'APPROVED', ...(Number.isSafeInteger(created.version) ? { expectedVersion: created.version } : {}) },
     });
     checkItem(approved, { itemId, userId, state: 'APPROVED', occurredAt });
 
-    step('first approved search after review invalidates pending cache');
+  step('first approved search reads current reviewed state');
     const first = findItem(await request('GET', searchPath, { token: userToken }), itemId);
     checkItem(first, { itemId, userId, state: 'APPROVED', occurredAt });
 
-    step('repeat search preserves publisher and dates on the cache path');
+    step('repeat search preserves publisher and dates');
     const second = findItem(await request('GET', searchPath, { token: userToken }), itemId);
     checkItem(second, { itemId, userId, state: 'APPROVED', occurredAt });
     check(first.publisherId === second.publisherId, 'publisherId is stable across repeat search');
@@ -201,11 +252,15 @@ async function runSmoke() {
     step('ordinary edit returns item to pending');
     const edited = await request('PUT', `/api/items/${itemId}`, {
       token: userToken,
-      body: { ...payload, description: `${payload.description} Edited by its owner.` },
+      body: {
+        ...payload,
+        description: `${payload.description} Edited by its owner.`,
+        ...(Number.isSafeInteger(approved.version) ? { expectedVersion: approved.version } : {}),
+      },
     });
     checkItem(edited, { itemId, userId, state: 'PENDING', occurredAt });
 
-    step('edit invalidates the approved search cache');
+    step('edit immediately removes the item from approved search');
     const afterEdit = await request('GET', searchPath, { token: userToken });
     check(findItem(afterEdit, itemId) === undefined, 'edited pending item disappears from public search');
 

@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: campus-lost-found-ai
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
   datasource:
     url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:13306}/${DB_NAME:lost_found}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:lost_found_app}
@@ -13,6 +16,8 @@ spring:
       ddl-auto: validate
     open-in-view: false
     show-sql: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: true
     baseline-on-migrate: false
@@ -33,3 +38,7 @@ ai:
 app:
   session-ttl-hours: 24
   admin-password: ${ADMIN_PASSWORD:}
+  campus:
+    campus-id: ${CAMPUS_ID:TEST_CAMPUS}
+    timezone: Asia/Shanghai
+    test-mode: ${CAMPUS_TEST_MODE:true}

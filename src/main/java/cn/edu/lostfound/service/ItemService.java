@@ -3,29 +3,37 @@ package cn.edu.lostfound.service;
 import cn.edu.lostfound.dto.ItemDtos;
 import cn.edu.lostfound.entity.*;
 import cn.edu.lostfound.repository.*;
-import org.springframework.cache.annotation.*;
+import cn.edu.lostfound.verification.VerificationApi;
+import cn.edu.lostfound.security.UserContext;
+import cn.edu.lostfound.identity.AccountApi;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 import java.util.*;
 
 @Service public class ItemService {
   private final ItemRepository items; private final UserRepository users;
-  public ItemService(ItemRepository items,UserRepository users){this.items=items;this.users=users;}
-  public Item create(Long userId,ItemDtos.Save r){User u=users.findById(userId).orElseThrow();return items.save(new Item(u,r.title(),r.description(),r.type(),r.category(),r.location(),r.occurredAt()));}
-  @Cacheable(value="itemSearch",key="#keyword + ':' + #type") public List<Item> search(String keyword,String type){return items.search(keyword==null?"":keyword,type==null?"":type);}
+  private final VerificationApi verification; private final AccountApi accounts;
+  public ItemService(ItemRepository items,UserRepository users,VerificationApi verification,AccountApi accounts){this.items=items;this.users=users;this.verification=verification;this.accounts=accounts;}
+  @Transactional(isolation=Isolation.READ_COMMITTED)
+  public Item create(Long userId,ItemDtos.Save r){verification.lockEligible(userId);User u=users.findById(userId).orElseThrow();return items.save(new Item(u,r.title(),r.description(),r.type(),r.category(),r.location(),r.occurredAt()));}
+  public List<Item> search(String keyword,String type){return items.search(keyword==null?"":keyword,type==null?"":type);}
   public List<Item> mine(Long id){return items.findByPublisherIdOrderByCreatedAtDesc(id);}
   public List<Item> pending(){return items.findByStatusOrderByCreatedAtDesc("PENDING");}
-  @CacheEvict(value="itemSearch",allEntries=true) public Item review(Long id,String status){Item i=items.findById(id).orElseThrow(()->new IllegalArgumentException("信息不存在"));i.setStatus(status);return items.save(i);}
-  @CacheEvict(value="itemSearch",allEntries=true)
+  @Transactional(isolation=Isolation.READ_COMMITTED)
+  public Item review(Long id,String status){verification.lockForAccount(UserContext.id());accounts.requireAdministrator(UserContext.id());Item i=items.findById(id).orElseThrow(()->new IllegalArgumentException("信息不存在"));i.setStatus(status);return items.save(i);}
+  @Transactional(isolation=Isolation.READ_COMMITTED)
   public Item update(Long id,Long userId,boolean admin,ItemDtos.Save r){
+    verification.lockEligible(userId);
     Item i=items.findById(id).orElseThrow(()->new IllegalArgumentException("信息不存在"));
-    if(!admin&&!i.getPublisher().getId().equals(userId))throw new SecurityException("无权修改");
+    if(!i.getPublisher().getId().equals(userId))throw new SecurityException("无权修改");
     i.update(r.title(),r.description(),r.type(),r.category(),r.location(),r.occurredAt());
-    if(!admin)i.setStatus("PENDING");
+    i.setStatus("PENDING");
     return items.save(i);
   }
   public List<Map<String,Object>> matches(Long itemId,Long userId,boolean admin){
     Item base=items.findById(itemId).orElseThrow(()->new IllegalArgumentException("信息不存在"));
-    if(!"APPROVED".equals(base.getStatus())&&!admin&&!base.getPublisher().getId().equals(userId)){
+    if(!"APPROVED".equals(base.getStatus())&&!base.getPublisher().getId().equals(userId)){
       throw new SecurityException("无权查看未公开信息");
     }
     return items.search("",base.getType().equals("LOST")?"FOUND":"LOST").stream().map(i->Map.<String,Object>of("id",i.getId(),"title",i.getTitle(),"type",i.getType(),"location",String.valueOf(i.getLocation()),"score",similarity(base,i))).sorted((a,b)->Double.compare((double)b.get("score"),(double)a.get("score"))).limit(5).toList();

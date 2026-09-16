@@ -1,24 +1,27 @@
 # 校园失物招领智能管理系统
 
-本项目是一个适合毕业设计的 Spring Boot 后端：使用 MySQL 保存业务数据，Redis 管理会话和热点查询缓存，并通过兼容 OpenAI 的接口接入 AI 文案优化与问答。
+本项目是一个适合毕业设计的 Spring Boot + Vue 校园应用：使用 MySQL 保存业务数据，Redis 管理会话及账号入口限流，并预留 AI 文案优化与问答。
 
 ## 功能
 
 - 用户注册、登录、退出（Redis Token 会话）
+- 本人资料与联系方式维护，版本冲突保护
+- 人工在校身份申请、审核、驳回重提、有效期、撤销及允许重核
+- 本人认证历史、管理员审核页面及事务审计；测试认证明确标识
 - 发布、编辑、查看本人失物/招领信息
 - 登录后搜索已审核信息；管理员审核信息
 - 基于字符集合的失物/招领相似度匹配
-- Redis 缓存已审核信息搜索结果
+- 现有物品与 AI 入口检查实时校园资格；管理员通过独立管理入口审核
 - AI 优化发布文案、失物招领问答（可按需启用）
 
 ## 开发基线与范围
 
-仓库包含后端原型和 `frontend` 前端基础工程。现有接口仍是下方的 12 个原型接口；人工在校核验、图片、完整认领/交接及新版权限尚未实现。只能用于本机合成数据开发，不能作为已满足正式需求的系统开放给学生。
+账号与人工在校身份审核阶段已实现，包含文档 API-01～13 及升级准入后的原物品/AI接口，共22个操作。前端包含注册登录、本人资料、认证及管理审核页面。图片、完整发布与内容审核页面、分页详情、认领/双向交接仍属下一阶段；本机使用合成测试校园，尚未满足真实校园上线条件。
 
 | 环境 | MySQL（本机 Windows 服务） | 独立 Redis | 后端 | 前端 |
 | --- | --- | --- | --- | --- |
 | 开发 | `127.0.0.1:13306/lost_found` | `127.0.0.1:16379` | `127.0.0.1:8080` | `127.0.0.1:5174` |
-| 集成测试 | `127.0.0.1:13306/lost_found_test` | `127.0.0.1:16380` | `127.0.0.1:18080` | API 烟测，不复用开发数据 |
+| 集成测试 | `127.0.0.1:13306/lost_found_test` | `127.0.0.1:16380` | `127.0.0.1:18080` | `127.0.0.1:15174`，`npm run dev:integration` |
 
 商城的 `3306`、`6379`、`5173` 不属于本项目。测试库虽然单独授权，仍与开发库共用本机 MySQL 进程；数据库停机/磁盘故障测试需另建隔离实例。
 
@@ -67,7 +70,9 @@ npm run dev
 
 浏览器访问 `http://127.0.0.1:5174`。前端 `/api` 代理到 `8080`；端口被占用会报错，不自动跳到商城端口。终端服务用 Ctrl+C 退出；仅停止本项目 Redis 可执行 `.\scripts\dev.ps1 redis-stop`，此命令不删除数据卷。
 
-后端现在由 Flyway 执行版本化迁移，JPA 仅 `validate` 校验。`V1__prototype_baseline.sql` 只创建现有 `users`、`items` 两张业务表，不代表正式八表设计已实现；Flyway 另建自己的历史表。已应用的迁移文件不可回改。管理员仅在密码已配置且 `admin` 不存在时创建，已有密码不会被覆盖。
+后端由 Flyway 执行版本化迁移，JPA 仅 `validate` 校验。V1 创建原 `users`、`items`；V2 扩展账号，增加 `campus_verifications`、`verification_applications`、`business_logs`，保留旧 `phone` 列（不超过100字符的值回填 `contact`），并为全部旧账号创建 UNVERIFIED 资格。共5张业务表，尚非完整八表设计。升级已有库前备份；已应用的迁移不可回改。管理员仅在密码已配置且 `admin` 不存在时创建，账号和未认证资格同事务创建，已有密码不覆盖。
+
+V2 将旧本机合成账号标为测试数据、校园标识为 `TEST_CAMPUS`，不会自动认证。切换真实校园需独立数据及经审核的迁移；不能只改测试开关复用测试审批。当前开发库若尚在V1，下次启动会执行V2，请先备份；本轮迁移验证使用隔离测试库。
 
 如不使用本机加密凭据，在当前终端或 IDE 配置 `.env.example` 中的实际变量；`-UseUserEnvironment` 可显式读取用户环境的凭据。`.env.example` 只是说明，Spring Boot 不会自动加载 `.env`。运行账号默认 `lost_found_app`，不要长期使用初始化时的管理账号。脚本拒绝继承的 `SPRING_*` 覆盖，防止误连别的工程；直接从 IDE 启动时也需自行检查配置优先级。
 
@@ -95,11 +100,18 @@ npm run verify
 $testAdmin = Import-Clixml -LiteralPath '.local\test-admin.credential.xml'
 $previousTestAdminPassword = $env:TEST_ADMIN_PASSWORD
 $env:TEST_ADMIN_PASSWORD = $testAdmin.GetNetworkCredential().Password
-try { node scripts/smoke-api.mjs --confirm-test-environment }
+try {
+  node scripts/check-identity-api.mjs --confirm-test-environment
+  node scripts/smoke-api.mjs --confirm-test-environment
+}
 finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 ```
 
-烟测仅请求固定 `18080`，验证旧接口的注册、登录、发布、审核、搜索冷/热缓存、编辑回审、退出和 401/403；每次保留一组有唯一标记的合成账号/物品，不清库、不清空 Redis，密码和 Token 不打印。它不是未实现的在校核验或认领验收，也不能替代浏览器与生产验证。
+烟测仅请求固定 `18080` 并确认测试配置，验证账号、人工核验、并发提交/审核、私密字段、版本冲突、撤销后的旧Token限制，以及认证后的原物品流程。每次保留带唯一标记的合成账号/申请/物品，不清库或清空 Redis，不打印密码和 Token。旧 `itemSearch` 缓存已停用，列表读取当前数据库事实。
+
+真实浏览器验收：另启动 `cd frontend; npm run dev:integration`，按同样方式在运行脚本的进程中设置 `TEST_ADMIN_PASSWORD`，执行 `node scripts/check-identity-browser.mjs --confirm-test-environment`。使用独立无界面 Edge，真实填写注册、资料、申请和审核表单；截图和结果在 `.local/identity-browser/`。只连接15174/18080，不占用商城15175。
+
+数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD` 后执行 `mvn -Dtest=IdentityDatabaseIntegrationTest test`；测试固定integration，仅新增合成记录。默认 `dev.ps1 verify` 跳过这8项真实数据库测试，仍运行其余回归及打包。验证包含注册/审计故障回滚、到期边界、重复注册/审核、资格撤销与业务写入两个锁顺序。
 
 其他独立验证工具：`scripts/check-database-isolation.mjs dev|integration` 使用当前进程的专用 DB 凭据，检查本库 V1 和跨库拒绝；`scripts/check-frontend.mjs --help` 说明真实 Edge 浏览器验证的准备条件。浏览器脚本只连 5174/8080，不新增业务数据，截图与结果输出到已忽略的 `.local/browser-check`。
 
@@ -111,13 +123,21 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 ## 接口概要
 
-除 `/api/auth/**` 外，调用接口需带请求头 `X-Token: 登录返回的 token`。
+公开配置、注册与登录无需Token；退出保留可选Token的幂等行为。其他请求使用 `X-Token: 登录返回的 token`。本人资料/认证仅需登录（L）；物品与AI需当前资格有效（G）；`/api/admin/**` 需当前管理员角色（M），不依赖学生认证。管理员使用普通业务仍需G且不绕过归属限制。
 
 | 方法 | 地址 | 说明 |
 | --- | --- | --- |
+| GET | `/api/public/config` | 校园/测试标识、人工核验指引、支持与限制说明 |
 | POST | `/api/auth/register` | 注册：username、password、nickname |
 | POST | `/api/auth/login` | 登录：username、password |
 | POST | `/api/auth/logout` | 退出：通过 X-Token 传入当前 token |
+| GET / PUT | `/api/users/me` | 本人资料；修改 nickname/contact/expectedVersion |
+| GET / POST | `/api/verifications/me` | 本人资格/分页历史；提交 expectedVersion/realName，学号与说明选填 |
+| GET | `/api/admin/verifications` | 当前资格分页，status/keyword/userId筛选（含动态EXPIRED） |
+| GET | `/api/admin/verifications/{userId}` | 当前申请及管理内部历史 |
+| POST | `/api/admin/verifications/{userId}/review` | applicationId/expectedVersion；通过须method/evidenceSummary/validThrough，驳回须reason |
+| POST | `/api/admin/verifications/{userId}/revoke` | 当前有效资格撤销，expectedVersion/reason |
+| POST | `/api/admin/verifications/{userId}/reopen` | REVOKED→UNVERIFIED，允许重提，不直接认证通过 |
 | POST | `/api/items` | 发布信息：title、description、type(LOST/FOUND) 等 |
 | GET | `/api/items?keyword=&type=` | 搜索已审核信息 |
 | GET | `/api/items/mine` | 本人发布记录 |
@@ -128,8 +148,12 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 | POST | `/api/ai/polish` | AI 润色：content |
 | POST | `/api/ai/chat` | AI 问答：question |
 
-响应格式为 `{ "code": 0, "message": "success", "data": ... }`；失败时 `code` 为 `-1`，同时返回相应 HTTP 错误状态。注册及初始管理员密码须为 6–64 个字符，UTF-8 编码后不超过 72 字节（BCrypt 限制）。
+成功响应仍为 `{ "code": 0, "message": "success", "data": ... }`；失败包含 `code:-1`、`errorCode`、`traceId`。错误凭证401、用户名冲突/旧版本409、资格失效403 VERIFICATION_REQUIRED、依赖故障503；未知请求字段400。注册及初始管理员密码须为6–64字符且UTF-8≤72字节。
+
+有效至日期包含当天，按校园时区次日零点排他到期；每次授权读数据库，不信任Token内旧角色或资格。资格写入与现有物品写入按资格锁协调，flush后提交前复核到期。审批历史、当前资格和审计同事务提交。管理员禁止自审；核验依据、内部备注、审核人仅管理详情可见，证明原图不上传。
+
+公开配置来自服务端 `app.campus`：默认 `TEST_CAMPUS`、`Asia/Shanghai`、测试模式，真实学校与渠道未落实时不虚构。昵称/联系方式不会改变认证资格。账号限流使用Redis原子计数，默认登录60次/IP/分钟、注册30次/IP/分钟、认证提交12次/账号/分钟，超限429及Retry-After；可通过 `app.rate-limit.login-per-minute/register-per-minute/verification-per-minute` 调整。当前本机直连按来源IP限流，代理部署前需明确可信代理策略。
 
 ## 毕设论文可写模块
 
-系统采用分层架构（Controller、Service、Repository）。MySQL 负责用户和信息持久化；Redis 负责会话过期管理和查询缓存；AI 模块使用大语言模型 API 完成非结构化文本整理和系统问答。匹配功能使用 Jaccard 字符集合相似度，避免模型不可用时核心功能失效。
+账号、认证、审计已建立独立模块入口；原物品模块仍在逐步升级。MySQL负责持久化与事务资格锁，Redis负责会话过期和限流；AI保留可关闭的调用封装。匹配使用Jaccard字符集合相似度。下一阶段按需求文档推进发布、图片、分页详情和内容审核，再实现认领与双向交接。
