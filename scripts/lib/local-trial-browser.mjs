@@ -14,7 +14,7 @@ export async function openTrialBrowser(origin) {
   ], { windowsHide: true, stdio: 'ignore' });
   let socket, launchError;
   browser.on('error', error => { launchError = error; });
-  const failures = [], responses = [], paused = [], pending = new Map();
+  const failures = [], responses = [], networkFailures = [], requestPaths = new Map(), paused = [], pending = new Map();
   let sequence = 0, exceptions = 0, externalRequests = 0;
   try {
     let port;
@@ -48,7 +48,14 @@ export async function openTrialBrowser(origin) {
       if (message.method === 'Network.requestWillBeSent') {
         const url = message.params.request.url;
         if (/^https?:/.test(url) && new URL(url).origin !== origin) externalRequests++;
+        if (url.startsWith(origin + '/')) requestPaths.set(message.params.requestId, new URL(url).pathname);
       }
+      if (message.method === 'Network.loadingFailed') {
+        const path = requestPaths.get(message.params.requestId);
+        if (path) networkFailures.push({ path, error: message.params.errorText, canceled: Boolean(message.params.canceled) });
+        requestPaths.delete(message.params.requestId);
+      }
+      if (message.method === 'Network.loadingFinished') requestPaths.delete(message.params.requestId);
       if (message.method === 'Network.responseReceived') {
         const { url, status } = message.params.response;
         if (url.startsWith(origin + '/api/')) responses.push({ path: new URL(url).pathname, status });
@@ -88,7 +95,7 @@ export async function openTrialBrowser(origin) {
     }
     await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
     return { send, evaluate, until, check, navigate, fill, click, nextPaused, screenshot,
-      diagnostics: () => ({ exceptions, externalRequests, responses, failures }),
+      diagnostics: () => ({ exceptions, externalRequests, responses, failures, networkFailures }),
       close: () => { for (const call of pending.values()) call.reject(); pending.clear(); socket.close(); browser.kill(); },
     };
   } catch (error) { socket?.close(); browser.kill(); throw error; }

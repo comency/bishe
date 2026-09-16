@@ -31,10 +31,16 @@ async function api(method, path, token, body, expected = 200, errorCode) {
   const response = await fetch(base + path, { method, redirect: 'error', signal: AbortSignal.timeout(30000),
     headers: { ...(token ? { 'X-Token': token } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined });
-  responses.push({ method, path, status: response.status, elapsedMs: Math.round(performance.now() - started) });
+  const observation = { method, path, status: response.status, elapsedMs: Math.round(performance.now() - started) };
+  responses.push(observation);
   check(response.status === expected, `${method} ${path}: expected ${expected}, got ${response.status}`);
   check(response.headers.get('cache-control')?.includes('no-store'), `${path}: no-store`);
   const result = await response.json();
+  // Only model outcome metadata; never retain login tokens or private API bodies.
+  if (path === '/api/ai/chat' || path === '/api/ai/polish') {
+    observation.modelStatus = result.data?.status ?? null;
+    observation.modelReason = result.data?.reason ?? null;
+  }
   check(result.code === (expected === 200 ? 0 : -1), `${path}: response envelope`);
   if (errorCode) check(result.errorCode === errorCode, `${path}: ${errorCode}`);
   if (expected === 429) check(response.headers.get('retry-after') === '60', 'rate limit provides Retry-After');
@@ -56,7 +62,7 @@ async function syntheticAccount(admin, suffix) {
 }
 function offered(result, label, expectedStatement) {
   check(Object.keys(result).sort().join(',') === 'content,reason,status', `${label}: exact DTO`);
-  check(result.status === 'GENERATED' && result.reason === null, `${label}: actual generated result required`);
+  check(result.status === 'GENERATED' && result.reason === null, `${label}: actual generated result required (status=${result.status}, reason=${result.reason})`);
   if (expectedStatement !== undefined) check(result.content === policy.guideStatements[expectedStatement], `${label}: relevant reviewed statement`);
   generations.push({ label, ...result });
 }
