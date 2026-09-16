@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <# Disposable rehearsal instance only. No Windows service changes or existing database connections. #>
 [CmdletBinding()]
-param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel)
+param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if (-not $ConfirmIsolatedRehearsal) { throw 'Explicit -ConfirmIsolatedRehearsal required before creating any files or processes.' }
@@ -85,7 +85,7 @@ try {
     $prefix='rehearsal_'+$tag+'_'
     $runnerPassword=New-Secret
     [void](Run-Sql "CREATE USER 'rehearsal_runner'@'localhost' IDENTIFIED BY '$runnerPassword';" $rootPassword)
-    foreach($suffix in @('empty','legacy','closed','checksum','unmanaged','source','restored','benchmark')){
+    foreach($suffix in @('empty','legacy','closed','checksum','unmanaged','source','restored','benchmark','outage')){
         $schema=$prefix+$suffix
         $grant=$schema.Replace('_','\_')
         [void](Run-Sql ('CREATE DATABASE `'+$schema+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES ON `'+$grant+'`.* TO ''rehearsal_runner''@''localhost'';') $rootPassword)
@@ -96,12 +96,16 @@ try {
         REHEARSAL_SCHEMA_PREFIX=$prefix; REHEARSAL_SERVER_UUID=$instance[1]; REHEARSAL_DIRECTORY=$runRoot
         RUN_SERVICE_BENCHMARK=([string][bool]$IncludeServiceBenchmark).ToLowerInvariant()
         RUN_SERVICE_MODEL_BENCHMARK=([string][bool]$IncludeLocalModel).ToLowerInvariant()
+        RUN_DB_OUTAGE_REHEARSAL=([string][bool]$IncludeDatabaseOutage).ToLowerInvariant()
     }
     foreach($name in $variables.Keys){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$variables[$name],'Process')}
     Push-Location -LiteralPath $projectRoot
     try {
         Write-Output ('Running isolated migration/restore checks and explicitly selected benchmarks on own 13307 instance; evidence: '+$runRoot)
-        $testSelection=if($IncludeServiceBenchmark){'-Dtest=MigrationRehearsalTest,ServiceLoadBenchmarkTest'}else{'-Dtest=MigrationRehearsalTest'}
+        $selectedTests=@('MigrationRehearsalTest')
+        if($IncludeServiceBenchmark){$selectedTests+='ServiceLoadBenchmarkTest'}
+        if($IncludeDatabaseOutage){$selectedTests+='DatabaseOutageRehearsalTest'}
+        $testSelection='-Dtest='+($selectedTests -join ',')
         $testHeap=if($IncludeServiceBenchmark){'-DargLine=-Xms64m -Xmx768m'}else{'-DargLine=-Xms32m -Xmx384m'}
         & mvn.cmd -q $testHeap $testSelection test *> (Join-Path $runRoot 'migration-tests.log')
         if($LASTEXITCODE -ne 0){throw 'Selected isolated checks failed; see protected local test log.'}

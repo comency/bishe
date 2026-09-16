@@ -340,3 +340,9 @@ finally { Remove-Item Env:RUN_AI_MODEL_TESTS -ErrorAction SilentlyContinue }
 如需加入3次真实模型问答，先按本文件说明启动并预热已核验的本地运行时，再额外加 `-IncludeLocalModel -ConfirmLocalModel`；不会下载模型或启用常规应用AI。记录每个模型调用是否完整处于查询负载窗口；未完整重叠不能混称全程并行。
 
 该试验没有HTTP、Redis会话/限流、序列化或浏览器开销；数据只有一个发布者且无图片/认领，不能替代NFR-04全链路验收、代表全部分布或证明商城并行可用。证据保存在私有忽略目录`.local/database-rehearsal/<本轮>/service-benchmark.json`，初始化日志及凭据不得公开。默认构建跳过此试验，候选构建也显式禁用其环境开关。
+
+## 独立数据库连接故障演练
+
+`powershell -NoProfile -File scripts/Test-IsolatedDatabase.ps1 -ConfirmIsolatedRehearsal -IncludeDatabaseOutage`另建自己的临时13307实例，使用只转发原始字节的回环临时端口切断**自身测试连接**。真实账号控制器/业务服务/JPA事务及异常处理器在进程内MVC中执行，身份由测试手工设置；不算Redis登录、权限拦截器或网络HTTP验收，不停止现有数据库。
+
+验证断连读写失败、失败写入无变化、连接池恢复后无需重启应用可继续读写；并在外层测试事务中执行真实资料更新，flush之后、COMMIT之前断连，核对未提交内容回滚。使用短测试专用超时，不代表生产恢复SLA；不能推断COMMIT回执丢失一定回滚，更不能无条件自动重试写入。证据为私有演练目录`database-outage.json`，默认构建及候选构建均跳过。
