@@ -17,7 +17,8 @@ class AiTrialConfigurationTest {
             "spring.datasource.url=jdbc:mysql://127.0.0.1:13306/lost_found_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai",
             "spring.datasource.username=lost_found_test_app","spring.data.redis.host=127.0.0.1",
             "spring.data.redis.port=16380","spring.data.redis.database=0","spring.flyway.enabled=false",
-            "spring.jpa.hibernate.ddl-auto=validate","ai.enabled=true","ai.base-url=http://127.0.0.1:11434",
+            "spring.jpa.hibernate.ddl-auto=validate","spring.sql.init.mode=never","spring.jpa.generate-ddl=false",
+            "app.media.root=.local/media-test","ai.enabled=true","ai.base-url=http://127.0.0.1:11434",
             "ai.model=qwen3:1.7b","ai.timeout-ms=20000","ai.context-tokens=4096","ai.output-tokens=512",
             "ai.minimum-free-bytes=4294967296","app.media.cleanup-enabled=false");
   }
@@ -37,7 +38,17 @@ class AiTrialConfigurationTest {
       "spring.datasource.username=lost_found_app","spring.data.redis.host=example.com","spring.data.redis.port=16379",
       "spring.data.redis.database=1","spring.flyway.enabled=true","spring.jpa.hibernate.ddl-auto=update",
       "ai.enabled=false","ai.base-url=http://127.0.0.1:11435","ai.model=qwen3:4b","ai.timeout-ms=90000",
-      "ai.context-tokens=8192","ai.output-tokens=1024","ai.minimum-free-bytes=1","app.media.cleanup-enabled=true"
+      "ai.context-tokens=8192","ai.output-tokens=1024","ai.minimum-free-bytes=1","app.media.cleanup-enabled=true",
+      "spring.sql.init.mode=always","spring.jpa.generate-ddl=true","app.media.root=.local/media-dev",
+      "spring.datasource.hikari.jdbc-url=jdbc:mysql://127.0.0.1:3306/other",
+      "spring.datasource.hikari.jdbcUrl=jdbc:mysql://127.0.0.1:3306/other",
+      "spring.datasource.hikari.username=other","spring.datasource.hikari.connection-init-sql=SELECT 1",
+      "spring.datasource.type=other","spring.datasource.jndi-name=other",
+      "spring.data.redis.url=redis://127.0.0.1:6379","spring.data.redis.cluster.nodes[0]=127.0.0.1:6379",
+      "spring.data.redis.sentinel.master=other","SPRING_DATA_REDIS_URL=redis://127.0.0.1:6379",
+      "spring.jpa.properties.hibernate.connection.url=jdbc:mysql://127.0.0.1:3306/other",
+      "spring.jpa.properties.jakarta.persistence.jdbc.url=jdbc:mysql://127.0.0.1:3306/other",
+      "spring.jpa.properties.hibernate.hbm2ddl.auto=create"
   }) void unsafeOverridesFailBeforeOrdinaryBeans(String override){
     AtomicBoolean initialized=new AtomicBoolean();
     runner("integration","modeltrial").withBean("sideEffectBean",Object.class,()->{initialized.set(true);return new Object();})

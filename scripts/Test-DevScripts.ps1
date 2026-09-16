@@ -27,7 +27,7 @@ function Get-RedisOption {
 }
 
 try {
-    foreach ($file in @($devScript, $PSCommandPath)) {
+    foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'))) {
         $tokens = $null
         $parseErrors = $null
         $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors)
@@ -35,6 +35,10 @@ try {
         $source = Get-Content -LiteralPath $file -Raw
         Assert-Check ($source -notmatch '[^\x00-\x7F]') 'Scripts remain ASCII-compatible UTF-8 for Windows PowerShell.'
     }
+
+    $rehearsalDenied=$false
+    try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') } catch { $rehearsalDenied=$_.Exception.Message -match 'ConfirmIsolatedRehearsal' }
+    Assert-Check $rehearsalDenied 'Isolated rehearsal refuses missing consent before filesystem/process changes.'
 
     $docker = (Get-Command docker.exe -CommandType Application -ErrorAction Stop).Source
     $json = & $docker --context desktop-linux compose --project-name campus-lost-found-local --file $composeFile --profile integration config --format json

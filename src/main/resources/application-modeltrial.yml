@@ -6,6 +6,11 @@ server:
 spring:
   flyway:
     enabled: false
+  sql:
+    init:
+      mode: never
+  jpa:
+    generate-ddl: false
 ai:
   enabled: ${AI_LOCAL_TRIAL_CONFIRMED:false}
 app:

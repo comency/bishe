@@ -153,6 +153,16 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 本轮状态：241项普通后端、106项前端通过，另此前29项真实库通过。Docker启动缺少安装注册表项，测试Redis不可用，故上述成功链路尚未执行；未修改注册表或重装。已利用现有故障完成22项真实HTTP/Edge故障断言：明确503、不放行、不把依赖故障伪装为AI降级，匿名仍401；375px及桌面截图已复核。复现命令 `node scripts/check-redis-outage.mjs --confirm-test-redis-unavailable` 要求测试Redis已经停止，脚本不会停止依赖。无新账号、无模型生成。临时18081/15176进程已停止。
 
+后续加固：启动守卫还拒绝Hikari专属连接覆盖、Redis URL/集群/哨兵覆盖和额外JPA属性；强制关闭SQL初始化与JPA建表，只接受本项目测试图片目录。41项启动配置检查通过，打包JAR的非法Redis URL在数据源/迁移/监听之前拒绝，正确试验组合正常启动。完整后端293项中286通过（257普通+29真实库）、7跳过（6隔离演练+1模型），无失败；演练另外单独执行如下。
+
+## 隔离迁移与数据库/图片恢复演练
+
+`powershell.exe -NoProfile -File scripts/Test-IsolatedDatabase.ps1 -ConfirmIsolatedRehearsal` 使用既有MySQL8.0.41，在独占回环13307及全新`.local/database-rehearsal/<唯一目录>/data`运行，不连接开发库/测试库/商城，不注册服务。开始前至少4GiB可用内存；端口占用拒绝；`--no-defaults`避免读已有实例配置，随机凭据只在私有目录以DPAPI保存。默认普通构建不执行此演练。
+
+6项真实测试通过：空库V1–V4与重复迁移、合成V1事实保留且不自动认证、旧CLOSED不明原因拒绝升级、迁移checksum改变拒绝、未管理非空库拒绝自动baseline、SQL+PNG恢复到另一空库并校对9张表数据/完整定义/图片摘要及绑定。Windows父子进程均验证归属，正常结束只关闭本轮实例；文件保留、不清库。`result.json`记录是否强制停止/是否剩余进程，失败不可忽略。40项环境脚本检查通过。
+
+此前失败轮（进程识别、mysqldump参数）均保留，详见E盘24记录；修正后两轮增强演练通过。这里的极小合成恢复不是生产RTO/RPO、时间点恢复或恢复后应用全流程验收；现有开发库仍V1，不能直接启动迁移。
+
 ## AI 配置
 
 默认 `AI_ENABLED=false`，集成测试配置强制关闭。适配器仅调用本机 Ollama 原生 `/api/chat`；`AI_BASE_URL` 默认 `http://127.0.0.1:11434`，只接受显式端口的回环IP，禁用代理和重定向，无云端回退或API密钥。`AI_MODEL` 默认候选 `qwen3:1.7b`，仅另允许 `qwen3:4b`；这不表示模型已下载或已验证。安装、模型来源/量化确认及效果试跑需另行安排。
