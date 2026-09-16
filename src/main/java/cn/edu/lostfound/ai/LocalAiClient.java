@@ -32,6 +32,7 @@ public class LocalAiClient {
   public AiDtos.Result generate(String input,boolean polish){
     if(!config.enabled())return AiDtos.Result.unavailable("DISABLED");
     if(polish&&policy.blockedPolishInput(input))return AiDtos.Result.unavailable("EMPTY_RESULT");
+    if(!polish&&policy.blockedChatInput(input))return AiDtos.Result.unavailable("EMPTY_RESULT");
     String system=policy.system(polish);
     // Conservative UTF-8 token budget; never silently truncate input.
     if(system.getBytes(StandardCharsets.UTF_8).length+input.getBytes(StandardCharsets.UTF_8).length+config.outputTokens()+128>config.contextTokens()||
@@ -39,8 +40,12 @@ public class LocalAiClient {
     if(!slot.tryAcquire())return AiDtos.Result.unavailable("BUSY");
     CompletableFuture<HttpResponse<byte[]>> pending=null;
     try {
-      var body=Map.of("model",config.model(),"messages",List.of(Map.of("role","system","content",system),Map.of("role","user","content",input)),
-          "stream",false,"think",false,"keep_alive",0,"options",Map.of("temperature",0.2,"num_ctx",config.contextTokens(),"num_predict",config.outputTokens()));
+      var body=new LinkedHashMap<String,Object>();
+      body.put("model",config.model());
+      body.put("messages",List.of(Map.of("role","system","content",system),Map.of("role","user","content",input)));
+      body.put("stream",false);body.put("think",false);body.put("keep_alive",0);
+      body.put("options",Map.of("temperature",polish?0.2:0.0,"num_ctx",config.contextTokens(),"num_predict",config.outputTokens()));
+      if(!polish)body.put("format",policy.guidanceFormat());
       var request=HttpRequest.newBuilder(config.baseUrl().resolve("/api/chat")).timeout(Duration.ofMillis(config.timeoutMs()))
           .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
       pending=http.sendAsync(request,info->new LimitedBody());
@@ -52,10 +57,12 @@ public class LocalAiClient {
       if(root==null||root.has("error")||!root.path("done").asBoolean()||root.path("message").has("tool_calls")||
           !root.path("message").path("role").asText().equals("assistant"))return AiDtos.Result.unavailable("UPSTREAM_ERROR");
       if(root.path("done_reason").asText().equals("length"))return AiDtos.Result.unavailable("RESOURCE_LIMIT");
+      if(!root.path("done_reason").asText().equals("stop"))return AiDtos.Result.unavailable("UPSTREAM_ERROR");
       var node=root.path("message").path("content");
       if(!node.isTextual()||node.asText().isBlank())return AiDtos.Result.unavailable("EMPTY_RESULT");
       String content=node.asText().strip();
       if(content.length()>(polish?3000:12000)||content.contains("<think>")||content.contains("</think>"))return AiDtos.Result.unavailable("UPSTREAM_ERROR");
+      if(!polish)content=policy.decodeGuidance(content);
       if(!policy.accepts(input,content,polish))return AiDtos.Result.unavailable("EMPTY_RESULT");
       return new AiDtos.Result(content,"GENERATED",null);
     } catch(TimeoutException e){return AiDtos.Result.unavailable("TIMEOUT");}

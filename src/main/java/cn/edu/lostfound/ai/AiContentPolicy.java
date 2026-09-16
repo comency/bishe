@@ -1,6 +1,6 @@
 package cn.edu.lostfound.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.*;
 import java.io.IOException;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -9,9 +9,16 @@ import java.util.regex.Pattern;
 public final class AiContentPolicy {
   private static final Pattern UNSAFE_FORMAT = Pattern.compile("[<>`]|https?://|javascript:|data:", Pattern.CASE_INSENSITIVE);
   private static final Pattern EDIT_INSTRUCTIONS = Pattern.compile("忽略.{0,12}(前文|规则|指令)|系统提示|扮演|宣称.{0,12}(已|完成)|输出.{0,12}(网页|代码|脚本)|ignore.{0,24}(instructions|rules)|system\\s*prompt", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+  // Explicit task-control directives are outside this bounded FAQ, not a general injection detector.
+  private static final Pattern CHAT_CONTROL = Pattern.compile(
+      "(忽略|无视|绕过|覆盖|替换).{0,24}(规则|指令|提示|流程要求|schema)|"+
+      "(新|自定义)\\s*schema|(?:ignore|override|replace|bypass).{0,40}(instructions|rules|prompt|schema)",
+      Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
   private final String polishPrompt;
   private final String chatPrompt;
   private final List<String> statements;
+  private final Map<String,Object> guidanceFormat;
+  private final ObjectReader guidanceReader;
 
   public AiContentPolicy(ObjectMapper mapper) {
     try (var resource = AiContentPolicy.class.getResourceAsStream("/ai-content-policy.json")) {
@@ -20,14 +27,46 @@ public final class AiContentPolicy {
       polishPrompt = root.path("polishPrompt").asText();
       var entries = new ArrayList<String>();
       root.path("guideStatements").forEach(node -> entries.add(node.asText()));
-      if (polishPrompt.isBlank() || entries.size() != 8 || entries.stream().anyMatch(String::isBlank))
+      if (polishPrompt.isBlank() || root.path("chatPrompt").asText().isBlank() || entries.size() != 8 ||
+          entries.stream().anyMatch(String::isBlank) || new HashSet<>(entries).size() != entries.size())
         throw new IOException("Invalid AI content policy");
       statements = List.copyOf(entries);
-      chatPrompt = root.path("chatPrompt").asText() + "\n" + String.join("\n", statements);
+      guidanceFormat = Map.of("type","object", "properties",Map.of("statements",Map.of(
+          "type","array", "minItems",1, "maxItems",3,
+          "items",Map.of("type","string","enum",statements))),
+          "required",List.of("statements"), "additionalProperties",false);
+      var topics=root.path("guideTopics");
+      if(!topics.isArray() || topics.size()!=statements.size()) throw new IOException("Invalid guide topics");
+      var labeled=new ArrayList<String>();
+      for(int i=0;i<statements.size();i++) {
+        if(!topics.get(i).isTextual() || topics.get(i).asText().isBlank()) throw new IOException("Invalid guide topic");
+        labeled.add("【"+topics.get(i).asText()+"】"+statements.get(i));
+      }
+      chatPrompt = root.path("chatPrompt").asText()+"\n"+String.join("\n",labeled);
+      guidanceReader = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
+          DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
     } catch (IOException e) { throw new IllegalStateException("Cannot load AI content policy", e); }
   }
 
   public String system(boolean polish) { return polish ? polishPrompt : chatPrompt; }
+  public Map<String,Object> guidanceFormat() { return guidanceFormat; }
+
+  /** Decode only model-selected exact sentences; never infer IDs, repair text or insert a fallback. */
+  public String decodeGuidance(String raw) {
+    if (raw == null || raw.isBlank()) return null;
+    try {
+      JsonNode root = guidanceReader.readTree(raw);
+      if (root == null || !root.isObject() || root.size() != 1) return null;
+      var choices = root.path("statements");
+      if (!choices.isArray() || choices.size() < 1 || choices.size() > 3) return null;
+      var selected = new ArrayList<String>();
+      for (var choice : choices) {
+        if (!choice.isTextual() || !statements.contains(choice.textValue()) || selected.contains(choice.textValue())) return null;
+        selected.add(choice.textValue());
+      }
+      return String.join("\n", selected);
+    } catch (IOException e) { return null; }
+  }
 
   public boolean accepts(String input, String output, boolean polish) {
     if (input == null || output == null || output.isBlank() || unsafe(output)) return false;
@@ -52,6 +91,7 @@ public final class AiContentPolicy {
         Character.getType(c) == Character.FORMAT || (Character.isISOControl(c) && c != '\n' && c != '\r' && c != '\t'));
   }
   public boolean blockedPolishInput(String text) { return unsafe(text) || EDIT_INSTRUCTIONS.matcher(text).find(); }
+  public boolean blockedChatInput(String text) { return unsafe(text) || CHAT_CONTROL.matcher(text).find(); }
 
   private String surface(String text) {
     StringBuilder normalized = new StringBuilder();
