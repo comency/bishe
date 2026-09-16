@@ -35,6 +35,7 @@ class ClaimDatabaseIntegrationTest {
   @Autowired ItemService items;
   @Autowired ClaimService claims;
   @Autowired ClaimStore store;
+  @Autowired ClaimApi claimApi;
   @Autowired VerificationService verification;
   @Autowired JdbcTemplate jdbc;
   @Autowired CampusProperties campus;
@@ -70,6 +71,31 @@ class ClaimDatabaseIntegrationTest {
     failure(()->apply(applicant),"CLAIM_EXISTS");
     var edit=new ItemDtos.Update();edit.title="Changed title";edit.description="Edited synthetic";edit.type="FOUND";edit.expectedVersion=itemVersion();items.update(itemId,owner,edit);
     assertThat(((Map<?,?>)claims.get(id,applicant,false,1,10).get("item")).get("title")).isEqualTo("Synthetic claim item");
+  }
+  @Test void batchClaimSummaryNeverReturnsAnotherApplicantsIdAcrossStates(){
+    long accepted=apply(applicant),waiting=apply(other);accept(accepted);
+    for(long actor:List.of(owner,applicant,other,admin)){
+      var batch=claimApi.summariesForItems(List.of(itemId),actor).get(itemId);
+      assertThat(batch.hasAcceptedClaim()).isTrue();assertThat(batch.myClaimId()).isEqualTo(claimApi.myClaim(itemId,actor));
+      var page=items.page(actor,actor==admin?"admin":"public",1,10,"","",null,null,itemId).records().getFirst();
+      Long expected=actor==applicant?Long.valueOf(accepted):actor==other?Long.valueOf(waiting):null;
+      assertThat(page).containsEntry("hasAcceptedClaim",true).containsEntry("myClaimId",expected)
+          .doesNotContainKeys("identification","evidence","applicantContactSnapshot","publisherContactSnapshot","internalNote");
+    }
+    claims.end(waiting,other,new ClaimDtos.End(0L,"Synthetic cancellation"),false);
+    assertThat(claimApi.summariesForItems(List.of(itemId),other).get(itemId).myClaimId()).isEqualTo(waiting);
+    claims.confirm(accepted,owner,true);claims.confirm(accepted,applicant,false);
+    assertThat(claimApi.summariesForItems(List.of(itemId),owner)).isEmpty();
+    assertThat(claimApi.summariesForItems(List.of(itemId),applicant).get(itemId)).isEqualTo(new ClaimApi.PageSummary(false,accepted));
+    assertThat(items.page(owner,"mine",1,10,"","",null,null,itemId).records().getFirst()).containsEntry("hasAcceptedClaim",false).containsEntry("myClaimId",null);
+  }
+  @Test void batchClaimsAreRestrictedToRequestedItemsIncludingRejectedHistory(){
+    long rejected=apply(applicant);claims.end(rejected,owner,new ClaimDtos.End(0L,"Synthetic rejection"),true);
+    var create=new ItemDtos.Create();create.title="Another synthetic item";create.description="Synthetic";create.type="FOUND";
+    long unrelated=id(items.create(owner,create));
+    assertThat(claimApi.summariesForItems(List.of(unrelated),applicant)).isEmpty();
+    assertThat(claimApi.summariesForItems(List.of(itemId,unrelated),applicant))
+        .containsOnlyKeys(itemId).containsEntry(itemId,new ClaimApi.PageSummary(false,rejected));
   }
   @Test void activeClaimBlocksEditingAndOwnerClosure(){
     apply(applicant);var edit=new ItemDtos.Update();edit.title="Changed";edit.description="Synthetic";edit.type="FOUND";edit.expectedVersion=itemVersion();

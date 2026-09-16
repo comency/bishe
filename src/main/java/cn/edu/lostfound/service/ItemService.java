@@ -137,16 +137,24 @@ public class ItemService {
       if(itemId!=null)predicates.add(cb.equal(root.get("id"),itemId));
       return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
     },PageRequest.of(page-1,size,Sort.by(Sort.Direction.DESC,"createdAt","id")));
-    return new ItemDtos.Page<>(result.getContent().stream().map(i->summary(i,actor)).toList(),result.getTotalElements(),page,size);
+    var content=result.getContent();
+    if(content.isEmpty())return new ItemDtos.Page<>(List.of(),result.getTotalElements(),page,size);
+    var visibleIds=content.stream().map(Item::getId).toList();
+    var images=media.imagesForItems(visibleIds);var summaries=claims.summariesForItems(visibleIds,actor);
+    return new ItemDtos.Page<>(content.stream().map(i->summary(i,images.getOrDefault(i.getId(),List.of()),
+        summaries.getOrDefault(i.getId(),ClaimApi.PageSummary.EMPTY))).toList(),result.getTotalElements(),page,size);
   }
   private Map<String,Object> legacy(Item i){
     var m=new LinkedHashMap<String,Object>();m.put("id",i.getId());m.put("publisherId",i.getPublisherId());m.put("title",i.getTitle());m.put("description",i.getDescription());
     m.put("type",i.getType());m.put("category",i.getCategory());m.put("location",i.getLocation());m.put("occurredAt",i.getOccurredAt());m.put("status",i.getStatus());m.put("createdAt",i.getCreatedAt());return m;
   }
   private Map<String,Object> summary(Item i,long actor){
+    return summary(i,media.images(i.getId()),new ClaimApi.PageSummary(claims.hasAccepted(i.getId()),claims.myClaim(i.getId(),actor)));
+  }
+  private Map<String,Object> summary(Item i,List<MediaService.Meta> images,ClaimApi.PageSummary claims){
     var m=legacy(i);m.remove("description");m.put("publisherNickname",i.getPublisher().getNickname());m.put("closeReason",i.getCloseReason());
-    m.put("createdAt",i.createdInstant(legacyZone));m.put("version",i.getVersion());m.put("contentVersion",i.getContentVersion());m.put("images",media.images(i.getId()));
-    m.put("hasAcceptedClaim",claims.hasAccepted(i.getId()));m.put("myClaimId",claims.myClaim(i.getId(),actor));return m;
+    m.put("createdAt",i.createdInstant(legacyZone));m.put("version",i.getVersion());m.put("contentVersion",i.getContentVersion());m.put("images",images);
+    m.put("hasAcceptedClaim",claims.hasAcceptedClaim());m.put("myClaimId",claims.myClaimId());return m;
   }
   private Map<String,Object> detail(Item i,long actor,boolean admin,int page,int size){
     var m=summary(i,actor);m.put("description",i.getDescription());m.put("updatedAt",i.updatedInstant(legacyZone));

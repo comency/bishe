@@ -1,6 +1,7 @@
 package cn.edu.lostfound.media;
 
 import cn.edu.lostfound.common.BusinessException;
+import cn.edu.lostfound.common.PageItemIds;
 import cn.edu.lostfound.identity.AccountApi;
 import cn.edu.lostfound.verification.VerificationApi;
 import java.io.*;
@@ -13,6 +14,7 @@ import javax.imageio.ImageIO;
 import javax.imageio.stream.MemoryCacheImageInputStream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -28,6 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class MediaService {
   public static final int MAX_BYTES=5*1024*1024;
   private final JdbcTemplate jdbc;
+  private final NamedParameterJdbcTemplate namedJdbc;
   private final VerificationApi verification;
   private final AccountApi accounts;
   private final Clock clock;
@@ -39,7 +42,7 @@ public class MediaService {
       PlatformTransactionManager manager,@Value("${app.media.root:.local/media}") String root,
       @Value("${app.media.max-pixels:12000000}") long maxPixels,@Value("${app.media.max-edge:8192}") int maxEdge,
       @Value("${app.media.temporary-hours:24}") long ttlHours) {
-    this.jdbc=jdbc;this.verification=verification;this.accounts=accounts;this.clock=clock;
+    this.jdbc=jdbc;this.namedJdbc=new NamedParameterJdbcTemplate(jdbc);this.verification=verification;this.accounts=accounts;this.clock=clock;
     this.root=Path.of(root).toAbsolutePath().normalize();this.maxPixels=maxPixels;this.maxEdge=maxEdge;this.ttlHours=ttlHours;
     if(maxPixels<1||maxEdge<1||ttlHours<1)throw new IllegalArgumentException("Invalid media limits");
     tx=new TransactionTemplate(manager);tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -116,6 +119,26 @@ public class MediaService {
   }
   private void discard(Path file){if(file!=null)try{Files.deleteIfExists(file);}catch(IOException ignored){/* orphan retained for operational reconciliation */}}
   public List<Meta> images(long item){return jdbc.query("SELECT m.* FROM media_files m JOIN item_images i ON i.media_id=m.id WHERE i.item_id=? AND m.lifecycle='BOUND' ORDER BY i.display_order",this::row,item).stream().map(Row::meta).toList();}
+
+  /** Only for IDs already selected by the caller's visibility-filtered page. No file bytes or storage keys. */
+  public Map<Long,List<Meta>> imagesForItems(Collection<Long> visibleItemIds){
+    var ids=PageItemIds.copyOf(visibleItemIds);
+    if(ids.isEmpty())return Map.of();
+    record ImageForItem(long itemId,Meta meta) {}
+    var rows=namedJdbc.query("""
+        SELECT i.item_id,m.id,m.mime_type,m.size_bytes,m.width,m.height,m.lifecycle,m.created_at,m.expires_at
+        FROM media_files m JOIN item_images i ON i.media_id=m.id
+        WHERE i.item_id IN (:ids) AND m.lifecycle='BOUND' ORDER BY i.item_id,i.display_order
+        """,Map.of("ids",ids),(r,n)->{
+          long id=r.getLong("id");var expires=r.getObject("expires_at",LocalDateTime.class);
+          return new ImageForItem(r.getLong("item_id"),new Meta(id,r.getString("mime_type"),r.getLong("size_bytes"),
+              r.getInt("width"),r.getInt("height"),"/api/uploads/images/"+id,r.getString("lifecycle"),
+              r.getObject("created_at",LocalDateTime.class).toInstant(ZoneOffset.UTC),expires==null?null:expires.toInstant(ZoneOffset.UTC)));
+        });
+    Map<Long,List<Meta>> result=new HashMap<>();
+    for(var row:rows)result.computeIfAbsent(row.itemId(),ignored->new ArrayList<>()).add(row.meta());
+    result.replaceAll((id,images)->List.copyOf(images));return Map.copyOf(result);
+  }
 
   @Transactional(propagation=Propagation.MANDATORY)
   public void bind(long item,long owner,List<Long> requested) {

@@ -88,6 +88,25 @@ class ItemMediaDatabaseIntegrationTest {
     assertThat(jdbc.queryForObject("SELECT object_version FROM business_logs WHERE item_id=? AND event_type='ITEM_APPROVED'",Long.class,itemId)).isEqualTo(1);
     assertThat(jdbc.queryForObject("SELECT reviewed_content_version FROM items WHERE id=?",Long.class,itemId)).isEqualTo(1);
   }
+  @Test void batchImagesKeepOrderAndStayWithinVisiblePage(){
+    var first=upload();var second=upload();var privateImage=upload();var unbound=upload();
+    long visible=id(items.create(owner,create(second.id(),first.id())));
+    long pending=id(items.create(owner,create(privateImage.id())));
+    items.review(visible,admin,new ItemDtos.Review("APPROVED",0L,null,null));
+    var batch=media.imagesForItems(List.of(visible));
+    assertThat(batch).containsOnlyKeys(visible);assertThat(batch.get(visible)).isEqualTo(media.images(visible));
+    assertThat(batch.get(visible)).extracting(MediaService.Meta::id).containsExactly(second.id(),first.id());
+    var page=items.page(owner,"public",1,10,"","",null,null,visible);
+    assertThat(page.records().getFirst()).containsEntry("images",batch.get(visible)).doesNotContainKeys("description","internalNote");
+    assertThat(items.page(owner,"public",1,10,"","",null,null,pending).records()).isEmpty();
+    assertThat(items.page(owner,"mine",1,10,"","",null,null,pending).records().getFirst()).containsEntry("images",media.images(pending));
+    assertThat(items.page(admin,"admin",1,10,"","",null,null,pending).records().getFirst()).containsEntry("images",media.images(pending));
+    assertThat(batch.get(visible)).extracting(MediaService.Meta::id).doesNotContain(privateImage.id(),unbound.id());
+    var edit=new ItemDtos.Update();edit.title="Synthetic edited";edit.description="Synthetic";edit.type="FOUND";edit.expectedVersion=1L;edit.setImageIds(List.of(first.id()));
+    items.update(visible,owner,edit);
+    assertThat(media.imagesForItems(List.of(visible)).get(visible)).extracting(MediaService.Meta::id).containsExactly(first.id());
+    assertThat(jdbc.queryForObject("SELECT lifecycle FROM media_files WHERE id=?",String.class,second.id())).isEqualTo("REMOVED");
+  }
   @Test void decoderRejectsDimensionBombBeforeFullDecode(){
     // A PNG header declaring a huge raster; header validation must precede allocation.
     byte[] bomb=png.clone();bomb[16]=0x7f;bomb[17]=(byte)0xff;bomb[18]=(byte)0xff;bomb[19]=(byte)0xff;

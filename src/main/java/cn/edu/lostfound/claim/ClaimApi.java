@@ -1,9 +1,11 @@
 package cn.edu.lostfound.claim;
 
 import cn.edu.lostfound.audit.AuditApi;
+import cn.edu.lostfound.common.PageItemIds;
 import java.time.Clock;
 import java.util.*;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.annotation.*;
 
 /** Narrow item-module boundary. Every write requires the caller to own the item lock. */
@@ -13,7 +15,8 @@ public class ClaimApi {
   private final AuditApi audit;
   private final Clock clock;
   private final org.springframework.jdbc.core.JdbcTemplate jdbc;
-  public ClaimApi(ClaimStore store,AuditApi audit,Clock clock,org.springframework.jdbc.core.JdbcTemplate jdbc){this.store=store;this.audit=audit;this.clock=clock;this.jdbc=jdbc;}
+  private final NamedParameterJdbcTemplate namedJdbc;
+  public ClaimApi(ClaimStore store,AuditApi audit,Clock clock,org.springframework.jdbc.core.JdbcTemplate jdbc){this.store=store;this.audit=audit;this.clock=clock;this.jdbc=jdbc;this.namedJdbc=new NamedParameterJdbcTemplate(jdbc);}
   @Transactional(propagation=Propagation.MANDATORY)
   public void ensureNoActive(long itemId){
     if(jdbc.queryForObject("SELECT COUNT(*) FROM claims WHERE item_id=? AND status IN ('APPLIED','ACCEPTED')",Long.class,itemId)>0)
@@ -35,4 +38,25 @@ public class ClaimApi {
   public boolean hasAccepted(long itemId){return jdbc.queryForObject("SELECT COUNT(*) FROM claims WHERE item_id=? AND status='ACCEPTED'",Long.class,itemId)>0;}
   @Transactional(readOnly=true,isolation=Isolation.READ_COMMITTED)
   public Long myClaim(long itemId,long actor){return jdbc.queryForList("SELECT id FROM claims WHERE item_id=? AND applicant_id=?",Long.class,itemId,actor).stream().findFirst().orElse(null);}
+
+  public record PageSummary(boolean hasAcceptedClaim,Long myClaimId){
+    public static final PageSummary EMPTY=new PageSummary(false,null);
+  }
+  /** Caller supplies an authorized page. Only the current applicant's ID is projected, never others' evidence/contact. */
+  @Transactional(readOnly=true,isolation=Isolation.READ_COMMITTED)
+  public Map<Long,PageSummary> summariesForItems(Collection<Long> visibleItemIds,long actor){
+    var ids=PageItemIds.copyOf(visibleItemIds);
+    if(actor<=0)throw new IllegalArgumentException("Invalid page actor");
+    if(ids.isEmpty())return Map.of();
+    var rows=namedJdbc.query("""
+        SELECT item_id,MAX(CASE WHEN status='ACCEPTED' THEN 1 ELSE 0 END) AS has_accepted,
+          MAX(CASE WHEN applicant_id=:actor THEN id ELSE NULL END) AS my_claim_id
+        FROM claims WHERE item_id IN (:ids) AND (status='ACCEPTED' OR applicant_id=:actor) GROUP BY item_id
+        """,Map.of("ids",ids,"actor",actor),(r,n)->{
+          long mine=r.getLong("my_claim_id");Long ownId=r.wasNull()?null:mine;
+          return Map.entry(r.getLong("item_id"),new PageSummary(r.getInt("has_accepted")!=0,ownId));
+        });
+    Map<Long,PageSummary> result=new HashMap<>();
+    for(var row:rows)result.put(row.getKey(),row.getValue());return Map.copyOf(result);
+  }
 }

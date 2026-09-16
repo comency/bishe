@@ -1,6 +1,7 @@
 package cn.edu.lostfound.service;
 
 import cn.edu.lostfound.audit.AuditApi;
+import cn.edu.lostfound.claim.ClaimApi;
 import cn.edu.lostfound.common.BusinessException;
 import cn.edu.lostfound.config.CampusProperties;
 import cn.edu.lostfound.dto.ItemDtos;
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.test.util.ReflectionTestUtils;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -25,13 +28,15 @@ class ItemServiceTest {
   VerificationApi verification=mock(VerificationApi.class);
   AuditApi audit=mock(AuditApi.class);
   MediaService media=mock(MediaService.class);
+  ClaimApi claims=mock(ClaimApi.class);
+  AccountApi accounts=mock(AccountApi.class);
   JdbcTemplate jdbc=mock(JdbcTemplate.class);
   CampusProperties campus=mock(CampusProperties.class);
   ItemService service;
   Item item;
   @BeforeEach void setup(){
     when(campus.zoneId()).thenReturn(ZoneId.of("Asia/Shanghai"));
-    service=new ItemService(repository,mock(UserRepository.class),verification,mock(AccountApi.class),media,audit,mock(cn.edu.lostfound.claim.ClaimApi.class),jdbc,Clock.fixed(Instant.parse("2026-09-16T00:00:00Z"),ZoneOffset.UTC),campus,"Asia/Shanghai");
+    service=new ItemService(repository,mock(UserRepository.class),verification,accounts,media,audit,claims,jdbc,Clock.fixed(Instant.parse("2026-09-16T00:00:00Z"),ZoneOffset.UTC),campus,"Asia/Shanghai");
     User owner=new User("owner","unused","测试发布者","USER");ReflectionTestUtils.setField(owner,"id",1L);
     item=new Item(owner,"校园水杯","蓝色水杯","LOST",null,null,null);ReflectionTestUtils.setField(item,"id",10L);
     when(repository.lockById(10L)).thenReturn(Optional.of(item));when(repository.findById(10L)).thenReturn(Optional.of(item));
@@ -65,6 +70,42 @@ class ItemServiceTest {
     assertThat(result).hasSize(1);assertThat(result.get(0).get("location")).isNull();assertThat((double)result.get(0).get("score")).isBetween(0.01,100.0);
   }
   @Test void invalidPageSizeRejected(){assertThatThrownBy(()->service.page(1,"public",1,51,"","","","",null)).isInstanceOf(IllegalArgumentException.class);}
+  @ParameterizedTest @ValueSource(strings={"public","mine","admin"})
+  void pagesBatchOnlySelectedIdsAfterAuthorizationAndKeepSummaryContract(String scope){
+    var second=new Item(item.getPublisher(),"Another","Private description","FOUND",null,null,null);
+    ReflectionTestUtils.setField(second,"id",20L);
+    when(repository.findAll(any(Specification.class),any(Pageable.class))).thenReturn(new PageImpl<>(List.of(second,item)));
+    var image=new MediaService.Meta(51L,"image/png",10,1,1,"/api/uploads/images/51","BOUND",Instant.EPOCH,null);
+    when(media.imagesForItems(List.of(20L,10L))).thenReturn(Map.of(20L,List.of(image)));
+    when(claims.summariesForItems(List.of(20L,10L),1)).thenReturn(Map.of(20L,new ClaimApi.PageSummary(true,70L)));
+    var page=service.page(1,scope,1,10,"","","","",null);
+    assertThat(page.records()).extracting(m->m.get("id")).containsExactly(20L,10L);
+    assertThat(page.records().getFirst()).containsEntry("images",List.of(image)).containsEntry("hasAcceptedClaim",true).containsEntry("myClaimId",70L);
+    assertThat(page.records().getLast()).containsEntry("images",List.of()).containsEntry("hasAcceptedClaim",false).containsEntry("myClaimId",null);
+    for(var record:page.records())assertThat(record).doesNotContainKeys("description","contact","identification","internalNote","reviewReason");
+    var order=inOrder(accounts,verification,repository,media,claims);
+    if(scope.equals("admin"))order.verify(accounts).requireAdministrator(1L);else order.verify(verification).requireEligible(1L);
+    order.verify(repository).findAll(any(Specification.class),any(Pageable.class));
+    order.verify(media).imagesForItems(List.of(20L,10L));order.verify(claims).summariesForItems(List.of(20L,10L),1);
+    verifyNoMoreInteractions(media,claims);
+  }
+  @Test void emptyPageKeepsTotalWithoutSummaryQueries(){
+    when(repository.findAll(any(Specification.class),any(Pageable.class))).thenReturn(new PageImpl<>(List.of(),PageRequest.of(2,10),20));
+    var page=service.page(1,"public",3,10,"","","","",null);
+    assertThat(page.total()).isEqualTo(20);assertThat(page.records()).isEmpty();verifyNoInteractions(media,claims);
+  }
+  @Test void fiftyItemsStillUseOneBatchPerSummaryProvider(){
+    var entries=new ArrayList<Item>();
+    for(long id=1;id<=50;id++){var entry=new Item(item.getPublisher(),"Synthetic","Private","FOUND",null,null,null);ReflectionTestUtils.setField(entry,"id",id);entries.add(entry);}
+    when(repository.findAll(any(Specification.class),any(Pageable.class))).thenReturn(new PageImpl<>(entries));
+    assertThat(service.page(1,"public",1,50,"","","","",null).records()).hasSize(50);
+    var ids=entries.stream().map(Item::getId).toList();verify(media).imagesForItems(ids);verify(claims).summariesForItems(ids,1);verifyNoMoreInteractions(media,claims);
+  }
+  @Test void deniedPageDoesNotReadItemsOrSummaries(){
+    doThrow(new BusinessException(403,"VERIFICATION_REQUIRED","Synthetic")).when(verification).requireEligible(1L);
+    assertConflict(()->service.page(1,"public",1,10,"","","","",null),"VERIFICATION_REQUIRED");
+    verifyNoInteractions(repository,media,claims);
+  }
   @Test void legacyMissingTimesRemainUnknownInsteadOfCrashingOrInventingDates(){
     ReflectionTestUtils.setField(item,"createdAt",null);ReflectionTestUtils.setField(item,"updatedAt",null);
     var result=service.get(10,1,false,1,10);
