@@ -4,7 +4,7 @@ import cn.edu.lostfound.dto.AiDtos;
 import cn.edu.lostfound.dto.ApiResponse;
 import cn.edu.lostfound.service.AiService;
 import jakarta.validation.Valid;
-import java.util.Map;
+import cn.edu.lostfound.security.UserContext;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,12 +20,12 @@ public class AiController {
   }
 
   @PostMapping("/polish")
-  public ApiResponse<Map<String, String>> polish(@Valid @RequestBody AiDtos.Polish body) {
-    return ApiResponse.ok(Map.of("content", ai.polish(body.content())));
+  public ApiResponse<AiDtos.Result> polish(@Valid @RequestBody AiDtos.Polish body) {
+    return ApiResponse.ok(ai.polish(UserContext.id(),body.content()));
   }
 
   @PostMapping("/chat")
-  public ApiResponse<Map<String, String>> chat(@Valid @RequestBody AiDtos.Chat body) {
-    return ApiResponse.ok(Map.of("content", ai.chat(body.question())));
+  public ApiResponse<AiDtos.Result> chat(@Valid @RequestBody AiDtos.Chat body) {
+    return ApiResponse.ok(ai.chat(UserContext.id(),body.question()));
   }
 }

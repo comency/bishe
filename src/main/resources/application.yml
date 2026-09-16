@@ -35,10 +35,13 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 3s
 ai:
-  enabled: false
-  base-url: https://api.openai.com/v1
-  api-key: ${AI_API_KEY:}
-  model: gpt-4o-mini
+  enabled: ${AI_ENABLED:false}
+  base-url: ${AI_BASE_URL:http://127.0.0.1:11434}
+  model: ${AI_MODEL:qwen3:1.7b}
+  timeout-ms: 20000
+  context-tokens: 4096
+  output-tokens: 512
+  minimum-free-bytes: 4294967296
 app:
   media:
     root: ${MEDIA_ROOT:.local/media-dev}

@@ -60,6 +60,7 @@ async function signOut() {
         <RouterLink v-if="auth.canUseBusiness" to="/items/mine" class="nav-link">我的发布</RouterLink>
         <RouterLink v-if="auth.canUseBusiness" to="/claims/mine" class="nav-link">我的认领</RouterLink>
         <RouterLink v-if="auth.canUseBusiness" to="/claims/incoming" class="nav-link">收到的认领</RouterLink>
+        <RouterLink v-if="auth.canUseBusiness" to="/assistant" class="nav-link">智能使用助手</RouterLink>
         <template v-if="auth.hasSession">
           <RouterLink to="/verification" class="nav-link"><span aria-hidden="true">✓</span> 校园认证</RouterLink>
           <RouterLink to="/profile" class="nav-link"><span aria-hidden="true">◇</span> 本人资料</RouterLink>

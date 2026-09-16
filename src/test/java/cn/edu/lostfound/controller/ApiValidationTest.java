@@ -68,13 +68,13 @@ class ApiValidationTest {
 
   @Test
   void validAiRequestPreservesResponseContract() throws Exception {
-    when(ai.polish("丢失校园卡")).thenReturn("校园卡遗失，请联系失主。");
+    when(ai.polish(null,"丢失校园卡")).thenReturn(new cn.edu.lostfound.dto.AiDtos.Result("校园卡遗失，请联系失主。","GENERATED",null));
     mvc.perform(post("/api/ai/polish").contentType(MediaType.APPLICATION_JSON)
             .content("{\"content\":\"丢失校园卡\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.code").value(0))
         .andExpect(jsonPath("$.data.content").value("校园卡遗失，请联系失主。"));
-    verify(ai).polish("丢失校园卡");
+    verify(ai).polish(null,"丢失校园卡");
   }
 
   @Test

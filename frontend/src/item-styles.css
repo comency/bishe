@@ -15,4 +15,9 @@
 .check-label { display: flex; align-items: center; gap: 10px; }
 .item-card h2 { font-size: 20px; overflow-wrap: anywhere; }
 .item-card h2 a { color: inherit; }
+.ai-panel { border: 1px solid #dce5db; border-radius: 12px; padding: 18px; }
+.ai-panel h2 { font-size: 18px; margin-top: 0; }
+.ai-preview { padding: 16px; background: #edf3ec; border-radius: 8px; }
+.assistant-page .button-row { margin-top: 18px; }
+.assistant-page article { overflow-wrap: anywhere; }
 @media(max-width: 700px) { .item-form-row { grid-template-columns: 1fr; } .item-form, .item-article { padding: 18px; } }

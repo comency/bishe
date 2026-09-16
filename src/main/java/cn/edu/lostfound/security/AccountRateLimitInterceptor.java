@@ -42,6 +42,7 @@ public class AccountRateLimitInterceptor implements HandlerInterceptor {
     else if (path.equals("/api/auth/register")) { limit=registerLimit; subject=request.getRemoteAddr(); }
     else if (path.equals("/api/verifications/me")) { limit=submitLimit; subject=String.valueOf(UserContext.id()); }
     else if (path.matches("/api/items/[1-9][0-9]*/claims")) { limit=submitLimit; subject=String.valueOf(UserContext.id()); path="/api/claims/create"; }
+    else if (path.equals("/api/ai/polish")||path.equals("/api/ai/chat")) { limit=6; subject=String.valueOf(UserContext.id()); path="/api/ai"; }
     else return true;
     String digest=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
         .digest(subject.getBytes(StandardCharsets.UTF_8)));

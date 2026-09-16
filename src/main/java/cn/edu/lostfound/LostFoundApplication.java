@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 @SpringBootApplication
-@EnableConfigurationProperties(CampusProperties.class)
+@EnableConfigurationProperties({CampusProperties.class,cn.edu.lostfound.ai.AiProperties.class})
 public class LostFoundApplication {
   public static void main(String[] args) { SpringApplication.run(LostFoundApplication.class, args); }
   @Bean BCryptPasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }

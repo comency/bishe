@@ -7,6 +7,7 @@ import { campusToday } from '../lib/identity'
 import { ApiError } from '../lib/request'
 import type { ImageMeta, ItemDetail } from '../lib/items'
 import PrivateImage from '../components/PrivateImage.vue'
+import AiPolishPreview from '../components/AiPolishPreview.vue'
 const route = useRoute(), router = useRouter(), auth = useAuthStore(), config = useConfigStore()
 const editing = computed(() => !!route.params.id)
 const form = reactive({ title: '', description: '', type: 'LOST', category: '', location: '', occurredAt: '' })
@@ -54,7 +55,7 @@ onBeforeUnmount(() => { ++sequence; controller.abort(); images.value = [] })
 <template>
   <section class="item-editor">
     <div class="page-heading"><div><span class="eyebrow">SHARE A CLUE</span><h1>{{ editing ? '编辑启事' : '发布启事' }}</h1><p class="muted">保存后进入人工内容审核，审核通过才会出现在大厅。</p></div><RouterLink to="/items/mine" class="secondary-button">我的发布</RouterLink></div>
-    <p class="environment-notice">请勿在正文或图片公开姓名、学号、联系方式等个人信息。认领证据与交接将在下一阶段开放。</p>
+    <p class="environment-notice">请勿在正文或图片公开姓名、学号、联系方式等个人信息。认领说明和交接联系方式请通过独立认领流程提供。</p>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p>
     <p v-if="blocked">请先到“我的发布”查询最新记录，确认结果后再编辑。系统不会自动重试提交。</p>
     <p v-if="loading" role="status">正在读取…</p>
@@ -63,6 +64,7 @@ onBeforeUnmount(() => { ++sequence; controller.abort(); images.value = [] })
         <label>信息类型<select v-model="form.type"><option value="LOST">寻物启事</option><option value="FOUND">招领启事</option></select></label>
         <label>标题<input v-model="form.title" required maxlength="100" placeholder="简要描述物品和主要特征" /></label>
         <label>详细描述<textarea v-model="form.description" required maxlength="3000" rows="6" /></label>
+        <AiPolishPreview :text="form.description" :disabled="saving || blocked || uploading" @apply="form.description = $event" />
         <div class="item-form-row"><label>分类<input v-model="form.category" maxlength="40" list="item-categories" /></label><label>地点<input v-model="form.location" maxlength="100" /></label><label>发生日期<input v-model="form.occurredAt" type="date" :max="today" /></label></div>
         <datalist id="item-categories"><option v-for="category in config.config?.categories" :key="category" :value="category" /></datalist>
         <label>物品图片（最多三张，每张5MiB）<input type="file" accept="image/jpeg,image/png" :disabled="images.length >= 3" @change="upload" /></label>
