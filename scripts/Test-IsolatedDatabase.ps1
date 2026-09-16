@@ -1,10 +1,12 @@
 #requires -Version 5.1
 <# Disposable rehearsal instance only. No Windows service changes or existing database connections. #>
 [CmdletBinding()]
-param([switch]$ConfirmIsolatedRehearsal)
+param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if (-not $ConfirmIsolatedRehearsal) { throw 'Explicit -ConfirmIsolatedRehearsal required before creating any files or processes.' }
+if($IncludeLocalModel -and (-not $IncludeServiceBenchmark -or -not $ConfirmLocalModel)){throw 'Local model benchmark additionally requires -IncludeServiceBenchmark -ConfirmLocalModel.'}
+if(@(Get-ChildItem Env: | Where-Object {$_.Name -like 'SPRING_*' -or $_.Name -in @('JAVA_TOOL_OPTIONS','JDK_JAVA_OPTIONS','_JAVA_OPTIONS')}).Count){throw 'Remove inherited Spring/JVM overrides before isolated rehearsal; no values are printed.'}
 $projectRoot=Split-Path -Parent $PSScriptRoot
 $mysqlRoot='E:\MySQL\MySQL Server 8.0'
 $serverExe=Join-Path $mysqlRoot 'bin\mysqld.exe'
@@ -83,7 +85,7 @@ try {
     $prefix='rehearsal_'+$tag+'_'
     $runnerPassword=New-Secret
     [void](Run-Sql "CREATE USER 'rehearsal_runner'@'localhost' IDENTIFIED BY '$runnerPassword';" $rootPassword)
-    foreach($suffix in @('empty','legacy','closed','checksum','unmanaged','source','restored')){
+    foreach($suffix in @('empty','legacy','closed','checksum','unmanaged','source','restored','benchmark')){
         $schema=$prefix+$suffix
         $grant=$schema.Replace('_','\_')
         [void](Run-Sql ('CREATE DATABASE `'+$schema+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES ON `'+$grant+'`.* TO ''rehearsal_runner''@''localhost'';') $rootPassword)
@@ -92,15 +94,19 @@ try {
         JAVA_HOME=$javaRoot; PATH=(Join-Path $javaRoot 'bin')+';'+$env:PATH; MAVEN_OPTS='-Xms32m -Xmx192m'
         RUN_MIGRATION_REHEARSAL='true'; REHEARSAL_DB_USERNAME='rehearsal_runner'; REHEARSAL_DB_PASSWORD=$runnerPassword
         REHEARSAL_SCHEMA_PREFIX=$prefix; REHEARSAL_SERVER_UUID=$instance[1]; REHEARSAL_DIRECTORY=$runRoot
+        RUN_SERVICE_BENCHMARK=([string][bool]$IncludeServiceBenchmark).ToLowerInvariant()
+        RUN_SERVICE_MODEL_BENCHMARK=([string][bool]$IncludeLocalModel).ToLowerInvariant()
     }
     foreach($name in $variables.Keys){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$variables[$name],'Process')}
     Push-Location -LiteralPath $projectRoot
     try {
-        Write-Output ('Running isolated migration/restore checks on own 13307 instance; evidence: '+$runRoot)
-        & mvn.cmd -q '-DargLine=-Xms32m -Xmx384m' '-Dtest=MigrationRehearsalTest' test *> (Join-Path $runRoot 'migration-tests.log')
-        if($LASTEXITCODE -ne 0){throw 'Migration rehearsal tests failed; see protected local test log.'}
+        Write-Output ('Running isolated migration/restore checks and explicitly selected benchmarks on own 13307 instance; evidence: '+$runRoot)
+        $testSelection=if($IncludeServiceBenchmark){'-Dtest=MigrationRehearsalTest,ServiceLoadBenchmarkTest'}else{'-Dtest=MigrationRehearsalTest'}
+        $testHeap=if($IncludeServiceBenchmark){'-DargLine=-Xms64m -Xmx768m'}else{'-DargLine=-Xms32m -Xmx384m'}
+        & mvn.cmd -q $testHeap $testSelection test *> (Join-Path $runRoot 'migration-tests.log')
+        if($LASTEXITCODE -ne 0){throw 'Selected isolated checks failed; see protected local test log.'}
     } finally {Pop-Location}
-    Write-Output 'PASS: isolated migration and restore tests. No existing database was connected or altered.'
+    Write-Output 'PASS: all selected isolated checks. No existing database was connected or altered.'
 } catch {$failure=$_.Exception.Message; throw}
 finally {
     foreach($name in $saved.Keys){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}

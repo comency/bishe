@@ -38,6 +38,7 @@ try {
         JAVA_HOME=$javaRoot; PATH=(Join-Path $javaRoot 'bin')+';'+$env:PATH; MAVEN_OPTS='-Xms32m -Xmx192m'
         RUN_IDENTITY_DB_TESTS='false';RUN_ITEM_DB_TESTS='false';RUN_CLAIM_DB_TESTS='false';RUN_AI_DB_TESTS='false'
         RUN_AI_MODEL_TESTS='false';RUN_MIGRATION_REHEARSAL='false'
+        RUN_SERVICE_BENCHMARK='false';RUN_SERVICE_MODEL_BENCHMARK='false'
     }
     foreach($name in $settings.Keys){$previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$settings[$name],'Process')}
     function Build-Step([string]$Tool,[string[]]$Arguments,[string]$LogName){

@@ -39,6 +39,11 @@ try {
     $rehearsalDenied=$false
     try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') } catch { $rehearsalDenied=$_.Exception.Message -match 'ConfirmIsolatedRehearsal' }
     Assert-Check $rehearsalDenied 'Isolated rehearsal refuses missing consent before filesystem/process changes.'
+    foreach($modelArgs in @(@{ConfirmIsolatedRehearsal=$true;IncludeLocalModel=$true},@{ConfirmIsolatedRehearsal=$true;IncludeLocalModel=$true;ConfirmLocalModel=$true})){
+        $modelDenied=$false
+        try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') @modelArgs } catch { $modelDenied=$_.Exception.Message -match 'Local model benchmark additionally requires' }
+        Assert-Check $modelDenied 'Model benchmark refuses incomplete explicit flags before filesystem/process changes.'
+    }
     $candidateDenied=$false
     try { & (Join-Path $PSScriptRoot 'New-LocalRelease.ps1') } catch { $candidateDenied=$_.Exception.Message -match 'CreateCandidate' }
     Assert-Check $candidateDenied 'Candidate builder refuses missing consent before filesystem/build actions.'

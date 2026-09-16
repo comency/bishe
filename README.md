@@ -121,7 +121,7 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 浏览器回归还覆盖“关闭请求已提交但响应延迟时，切换另一物品详情”：业务页面按会话和资源路径隔离，旧页卸载时取消请求并清空私密预览，迟到响应不能填回新物品页面。2026-09-16推送前复核：后端135项（含13项真实库）、前端76项、真实浏览器26项通过，三个HTTP联调脚本分别2144/194/373项断言通过。
 
-数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、`RUN_CLAIM_DB_TESTS=true`、`RUN_AI_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn verify`。默认 `dev.ps1 verify` 运行216项普通测试与打包，跳过29项真实库测试及1项真实模型测试。真实库测试包含认领唯一接受竞争、双向并发确认、提交前对方到期、整体回滚、20组状态/确认组合（9组合法）、异常结案与跨模块限制，以及AI生成中撤销/到期、网络调用不持有数据库事务；只新增合成数据，不清库。
+数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、`RUN_CLAIM_DB_TESTS=true`、`RUN_AI_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn verify`。默认 `dev.ps1 verify` 只运行普通测试与打包，跳过需要真实数据库、模型及隔离演练的测试；实际数量以该轮Surefire报告为准，不能将跳过项算通过。真实库测试包含认领唯一接受竞争、双向并发确认、提交前对方到期、整体回滚、20组状态/确认组合（9组合法）、异常结案与跨模块限制，以及AI生成中撤销/到期、网络调用不持有数据库事务；只新增合成数据，不清库。
 
 认领阶段新增真实联调命令（固定测试后端18080，浏览器另需前端15174）：
 
@@ -327,4 +327,12 @@ finally { Remove-Item Env:RUN_AI_MODEL_TESTS -ErrorAction SilentlyContinue }
 
 ## 毕设论文可写模块
 
-账号、认证、审计、物品、媒体、认领和双向交接已建立业务入口。MySQL负责持久化、资格锁与认领状态一致性，Redis负责会话过期和限流；匹配使用Jaccard字符集合相似度，仅返回非零候选。智能辅助契约、页面与降级已实现，本机真实生成测试发现资源可支撑当前单请求但质量不合格。下一步改进任务/输出约束与首次加载策略，复测通过后再做主业务并行及端到端验收，决定是否启用。随后进行一期全流程验收、部署准备与论文素材整理。
+账号、认证、审计、物品、媒体、认领和双向交接已建立业务入口。MySQL负责持久化、资格锁与认领状态一致性，Redis负责会话过期和限流；匹配使用Jaccard字符集合相似度，仅返回非零候选。智能辅助结构化修正后的39组真实适配器测试已通过，仍不等于真实应用端到端、商城并行或上线验收。当前Docker安装问题使Redis不可用，完整登录与业务成功链路待恢复；AI仍默认关闭。下一步完成相应联调，再推进一期全流程验收、部署准备与论文素材整理。
+
+## 独立服务层性能试验（非HTTP验收）
+
+`powershell -NoProfile -File scripts/Test-IsolatedDatabase.ps1 -ConfirmIsolatedRehearsal -IncludeServiceBenchmark`在新建的独立MySQL13307实例中完成6项迁移/恢复检查，再以真实Spring业务服务查询1万条合成物品。20并发、连接池3条、JVM堆768MiB，各阶段20秒；记录分页10/50条的成功延迟分位数、错误数和最低可用内存。只保留合成数据，不连接或清理已有业务数据库，最后核对自身实例正常退出。
+
+如需加入3次真实模型问答，先按本文件说明启动并预热已核验的本地运行时，再额外加 `-IncludeLocalModel -ConfirmLocalModel`；不会下载模型或启用常规应用AI。记录每个模型调用是否完整处于查询负载窗口；未完整重叠不能混称全程并行。
+
+该试验没有HTTP、Redis会话/限流、序列化或浏览器开销；数据只有一个发布者且无图片/认领，不能替代NFR-04全链路验收、代表全部分布或证明商城并行可用。证据保存在私有忽略目录`.local/database-rehearsal/<本轮>/service-benchmark.json`，初始化日志及凭据不得公开。默认构建跳过此试验，候选构建也显式禁用其环境开关。
