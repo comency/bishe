@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth'
 // Only implemented, same-origin routes can be login return destinations.
 export function safeReturnTo(value: unknown): string {
   if (typeof value !== 'string' || /[\\\r\n]/.test(value)) return '/items'
-  return /^\/(?:items(?:\/(?:new|mine|\d+(?:\/edit)?))?|profile|verification|admin\/(?:verifications|items)(?:\/\d+)?)(?:\?[^#]*)?$/.test(value) ? value : '/items'
+  return /^\/(?:items(?:\/(?:new|mine|\d+(?:\/edit)?))?|claims\/(?:mine|incoming|\d+)|profile|verification|admin\/(?:(?:verifications|items|claims)(?:\/\d+)?|logs))(?:\?[^#]*)?$/.test(value) ? value : '/items'
 }
 
 export function createAppRouter(pinia: Pinia, history: RouterHistory = createWebHistory()) {
@@ -13,6 +13,12 @@ export function createAppRouter(pinia: Pinia, history: RouterHistory = createWeb
     history,
     routes: [
       { path: '/', redirect: '/items' },
+      { path: '/claims/mine', component: () => import('../views/ClaimsView.vue'), meta: { title: '我的认领', requiresAuth: true, requiresVerification: true } },
+      { path: '/claims/incoming', component: () => import('../views/ClaimsView.vue'), meta: { title: '收到的认领', requiresAuth: true, requiresVerification: true } },
+      { path: '/claims/:id(\\d+)', component: () => import('../views/ClaimDetailView.vue'), meta: { title: '认领详情', requiresAuth: true, requiresVerification: true } },
+      { path: '/admin/claims', component: () => import('../views/ClaimsView.vue'), meta: { title: '认领管理', requiresAuth: true, requiresAdmin: true } },
+      { path: '/admin/claims/:id(\\d+)', component: () => import('../views/ClaimDetailView.vue'), meta: { title: '认领管理详情', requiresAuth: true, requiresAdmin: true } },
+      { path: '/admin/logs', component: () => import('../views/AdminLogsView.vue'), meta: { title: '业务操作日志', requiresAuth: true, requiresAdmin: true } },
       { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { title: '登录', guest: true } },
       { path: '/register', name: 'register', component: () => import('../views/RegisterView.vue'), meta: { title: '注册', guest: true } },
       { path: '/items', name: 'items', component: () => import('../views/ItemsView.vue'), meta: { title: '物品大厅', requiresAuth: true, requiresVerification: true } },

@@ -31,7 +31,7 @@ class ItemServiceTest {
   Item item;
   @BeforeEach void setup(){
     when(campus.zoneId()).thenReturn(ZoneId.of("Asia/Shanghai"));
-    service=new ItemService(repository,mock(UserRepository.class),verification,mock(AccountApi.class),media,audit,jdbc,Clock.fixed(Instant.parse("2026-09-16T00:00:00Z"),ZoneOffset.UTC),campus,"Asia/Shanghai");
+    service=new ItemService(repository,mock(UserRepository.class),verification,mock(AccountApi.class),media,audit,mock(cn.edu.lostfound.claim.ClaimApi.class),jdbc,Clock.fixed(Instant.parse("2026-09-16T00:00:00Z"),ZoneOffset.UTC),campus,"Asia/Shanghai");
     User owner=new User("owner","unused","测试发布者","USER");ReflectionTestUtils.setField(owner,"id",1L);
     item=new Item(owner,"校园水杯","蓝色水杯","LOST",null,null,null);ReflectionTestUtils.setField(item,"id",10L);
     when(repository.lockById(10L)).thenReturn(Optional.of(item));when(repository.findById(10L)).thenReturn(Optional.of(item));

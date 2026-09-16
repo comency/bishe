@@ -11,13 +11,16 @@
 - 发布、编辑重审、本人关闭，物品详情与公开/本人分页筛选
 - JPEG/PNG受控上传（每张5MiB、最多3张），绑定与私密图片读取
 - 管理员内容审核、驳回原因、内部备注、下架和版本化操作历史
+- 认领申请、收到/发出的认领列表，接受/拒绝/取消与联系快照
+- 双方分别确认交出/收到，原子归还结案、其他申请自动结束
+- 单方交接的管理异常处置、保留确认事实与脱敏业务日志
 - 基于字符集合的失物/招领相似度匹配
 - 现有物品与 AI 入口检查实时校园资格；管理员通过独立管理入口审核
 - AI 优化发布文案、失物招领问答（可按需启用）
 
 ## 开发基线与范围
 
-账号与人工在校身份审核，以及物品发布/图片/内容审核阶段已实现，覆盖文档 API-01～29 和两个原AI接口，共31个操作。新前端包含大厅、我的发布、发布/编辑、详情及独立物品审核页。认领/双向交接仍属下一阶段；本机使用合成测试校园，尚未满足真实校园上线条件。详细实施与边界见 E盘“项目流程/15_物品发布与内容审核实施记录_V1.0.md”。
+账号、人工在校身份审核、物品发布/图片/内容审核及认领/双向交接已实现，覆盖文档 API-01～42，另保留两个原AI接口。新前端包含认领列表、交接详情、管理异常处置及日志页。AI-43/44的目标契约与本地模型资源评估仍属下一阶段；本机使用合成测试校园，尚未满足真实校园上线条件。详细实施与边界见 E盘“项目流程/16_认领与双向交接实施记录_V1.0.md”。
 
 | 环境 | MySQL（本机 Windows 服务） | 独立 Redis | 后端 | 前端 |
 | --- | --- | --- | --- | --- |
@@ -71,9 +74,9 @@ npm run dev
 
 浏览器访问 `http://127.0.0.1:5174`。前端 `/api` 代理到 `8080`；端口被占用会报错，不自动跳到商城端口。终端服务用 Ctrl+C 退出；仅停止本项目 Redis 可执行 `.\scripts\dev.ps1 redis-stop`，此命令不删除数据卷。
 
-后端由 Flyway 执行版本化迁移，JPA 仅 `validate` 校验。V1 创建原 `users`、`items`；V2 扩展账号并增加认证与日志；V3 扩展物品版本、审核/关闭字段，增加 `media_files` 与 `item_images`。共7张业务表，认领表尚未实现。旧 `phone`、物品时间与宽文本列保留，不截断旧数据；新UTC物品时间单独保存。升级已有库前备份；已应用的迁移不可回改。管理员仅在密码已配置且 `admin` 不存在时创建，账号和未认证资格同事务创建，已有密码不覆盖。
+后端由 Flyway 执行版本化迁移，JPA 仅 `validate` 校验。V1 创建原 `users`、`items`；V2 扩展账号并增加认证与日志；V3 扩展物品版本、审核/关闭字段，增加 `media_files` 与 `item_images`；V4增加`claims`、数据库唯一/状态约束、认领日志外键及物品内部占用修订号。共8张业务表。旧 `phone`、物品时间与宽文本列保留，不截断旧数据；新UTC物品时间单独保存。升级已有库前备份；已应用的迁移不可回改。管理员仅在密码已配置且 `admin` 不存在时创建，账号和未认证资格同事务创建，已有密码不覆盖。
 
-V2 将旧本机合成账号标为测试数据、校园标识为 `TEST_CAMPUS`，不会自动认证。切换真实校园需独立数据及经审核的迁移。当前开发库仍在V1，下次启动会执行V2、V3，必须先备份并核对历史时间含义、空时间及CLOSED记录；V3遇到无法解释关闭原因的旧记录会停止，不伪造原因。本轮只升级了隔离测试库。
+V2 将旧本机合成账号标为测试数据、校园标识为 `TEST_CAMPUS`，不会自动认证。切换真实校园需独立数据及经审核的迁移。当前开发库仍在V1，下次启动会执行V2–V4，必须先备份并核对历史时间含义、空时间及CLOSED记录；V3遇到无法解释关闭原因的旧记录会停止，不伪造原因。本轮只将隔离测试库升级至V4，没有迁移开发库。
 
 如不使用本机加密凭据，在当前终端或 IDE 配置 `.env.example` 中的实际变量；`-UseUserEnvironment` 可显式读取用户环境的凭据。`.env.example` 只是说明，Spring Boot 不会自动加载 `.env`。运行账号默认 `lost_found_app`，不要长期使用初始化时的管理账号。脚本拒绝继承的 `SPRING_*` 覆盖，防止误连别的工程；直接从 IDE 启动时也需自行检查配置优先级。
 
@@ -117,7 +120,16 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 浏览器回归还覆盖“关闭请求已提交但响应延迟时，切换另一物品详情”：业务页面按会话和资源路径隔离，旧页卸载时取消请求并清空私密预览，迟到响应不能填回新物品页面。2026-09-16推送前复核：后端135项（含13项真实库）、前端76项、真实浏览器26项通过，三个HTTP联调脚本分别2144/194/373项断言通过。
 
-数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn '-Dtest=IdentityDatabaseIntegrationTest,ItemMediaDatabaseIntegrationTest' test`。默认 `dev.ps1 verify` 跳过13项真实库测试，运行122项普通测试与打包。真实库测试验证资格锁、到期复核、物品审计故障回滚、图片唯一绑定竞争、清理与UTC时刻，不清库。
+数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、`RUN_CLAIM_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn verify`。默认 `dev.ps1 verify` 跳过27项真实库测试，运行125项普通测试与打包。真实库测试包含认领唯一接受竞争、双向并发确认、提交前对方到期、整体回滚、20组状态/确认组合（9组合法）、异常结案与跨模块限制；只新增合成数据，不清库。
+
+认领阶段新增真实联调命令（固定测试后端18080，浏览器另需前端15174）：
+
+```powershell
+node scripts/check-claims-api.mjs --confirm-test-environment
+node scripts/check-claims-browser.mjs --confirm-test-environment
+```
+
+本阶段复核：后端152项（含27项真实库）、前端90项通过；认领HTTP 534项、账号2144项、物品194项、原流程烟测373项通过。认领真实Edge 20项断言/7张响应式截图，原账号与物品浏览器26项回归通过。截图与结果保存在已忽略的`.local/claims-browser/`，E盘实施记录另存验收副本。
 
 图片文件根目录默认 `.local/media-dev`，集成测试 `.local/media-test`，均不是静态公开目录。仅受控GET携带X-Token返回图片，前端生成Blob预览并在卸载时撤销。尺寸默认1200万像素、最长边8192，临时图24小时；这些只是可配置的本地技术测试值。`MEDIA_CLEANUP_ENABLED=false` 默认不运行定时清理；显式开启后按小时处理已过期/已移除记录，先PURGING、文件删除成功后DELETED，失败可重试。已绑定文件不清理。提交结果不确定的孤儿文件仅由内部 `orphanInventory()` 列出超过7天且无元数据的候选，需运维核对，不自动删除、不对外暴露路径。
 
@@ -159,6 +171,14 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 | PUT | `/api/admin/items/{id}/review` | status、expectedVersion；驳回/下架必须有reason，internalNote可选 |
 | POST | `/api/admin/items/{id}/close` | 管理下架：expectedVersion、reason；与review CLOSED同一逻辑 |
 | POST / GET | `/api/uploads/images`、`/api/uploads/images/{id}` | 上传单张图片/按当前对象权限读取二进制图片 |
+| POST | `/api/items/{id}/claims` | 他人FOUND申请：expectedItemVersion、identification、contact；同人同物仅一次 |
+| GET | `/api/claims/mine`、`/api/claims/incoming`、`/api/claims/{id}` | 本人申请/收到申请/参与者私密详情；独立历史分页 |
+| POST | `/api/claims/{id}/accept` | 发布者接受：expectedVersion、contact；双方资格有效、唯一占用 |
+| POST | `/api/claims/{id}/reject`、`/api/claims/{id}/cancel` | expectedVersion、reason；只允许指定角色和状态 |
+| POST | `/api/claims/{id}/confirm-handover`、`/api/claims/{id}/confirm-receipt` | 无请求体，发布者交出/申请者收到；按方向幂等，不代确认 |
+| GET | `/api/admin/claims`、`/api/admin/claims/{id}` | 管理分页/受控私密详情；不要求学生认证 |
+| POST | `/api/admin/claims/{id}/resolve` | 单方确认异常：expectedVersion、action、conclusion、reason、internalNote选填 |
+| GET | `/api/admin/logs` | 按objectType/objectId/action分页查询脱敏日志 |
 | POST | `/api/ai/polish` | AI 润色：content |
 | POST | `/api/ai/chat` | AI 问答：question |
 
@@ -166,8 +186,10 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 有效至日期包含当天，按校园时区次日零点排他到期；每次授权读数据库，不信任Token内旧角色或资格。资格写入与现有物品写入按资格锁协调，flush后提交前复核到期。审批历史、当前资格和审计同事务提交。管理员禁止自审；核验依据、内部备注、审核人仅管理详情可见，证明原图不上传。
 
-公开配置来自服务端 `app.campus`：默认 `TEST_CAMPUS`、`Asia/Shanghai`、测试模式，真实学校与渠道未落实时不虚构。昵称/联系方式不会改变认证资格。账号限流使用Redis原子计数，默认登录60次/IP/分钟、注册30次/IP/分钟、认证提交12次/账号/分钟，超限429及Retry-After；可通过 `app.rate-limit.login-per-minute/register-per-minute/verification-per-minute` 调整。当前本机直连按来源IP限流，代理部署前需明确可信代理策略。
+公开配置来自服务端 `app.campus`：默认 `TEST_CAMPUS`、`Asia/Shanghai`、测试模式，真实学校与渠道未落实时不虚构。昵称/联系方式不会改变认证资格。账号限流使用Redis原子计数，默认登录60次/IP/分钟、注册30次/IP/分钟、认证提交及认领申请分别12次/账号/分钟，超限429及Retry-After；认领申请采用跨物品统一计数，与认证独立计数，但暂共用`app.rate-limit.verification-per-minute`限额配置。当前本机直连按来源IP限流，代理部署前需明确可信代理策略。
+
+认领写入按资格（双方时按userId升序）→物品→认领（多条按id升序）锁定。接受及未完成的交接在提交前再次核对双方到期；对方失效仅返回409 COUNTERPART_INELIGIBLE，不泄露核验原因。活动认领阻止物品编辑和本人关闭。只有双方确认才在同一事务内完成认领、关闭物品为RETURNED、拒绝其余待处理申请并记日志；已完成重试不增加版本/日志，但会校验完成事实。管理异常终止保留单方确认，不能伪造收到或标记归还。
 
 ## 毕设论文可写模块
 
-账号、认证、审计、物品与媒体已建立业务入口。MySQL负责持久化与事务资格锁，Redis负责会话过期和限流；匹配使用Jaccard字符集合相似度，仅返回非零候选。下一阶段实现认领与双向交接：认领表与唯一约束、申请/接受/拒绝/取消、双方确认、管理异常处理，并将活动认领限制接入当前物品编辑/关闭锁内。
+账号、认证、审计、物品、媒体、认领和双向交接已建立业务入口。MySQL负责持久化、资格锁与认领状态一致性，Redis负责会话过期和限流；匹配使用Jaccard字符集合相似度，仅返回非零候选。下一阶段先评估本地AI资源和无付费方案，再完善文案辅助/问答目标契约、失败降级和输出约束；随后进行一期全流程验收、部署准备与论文素材整理。模型尚未安装或试跑，不能把预留AI接口视为正式智能能力验收完成。

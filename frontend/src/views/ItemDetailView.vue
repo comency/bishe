@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { itemActions, itemStatuses, closeReasons, type ItemDetail } from '../lib/items'
 import PrivateImage from '../components/PrivateImage.vue'
 import PageNavigation from '../components/PageNavigation.vue'
+import type { ClaimDetail } from '../lib/claims'
 const route = useRoute(), auth = useAuthStore()
+const router = useRouter()
+const identification = ref(''), claimContact = ref(''), claimConfirmed = ref(false)
 const admin = computed(() => route.path.startsWith('/admin/'))
 const item = ref<ItemDetail | null>(null), loading = ref(false), saving = ref(false), stale = ref(false), error = ref(''), notice = ref('')
 const decision = ref('APPROVED'), reason = ref(''), internalNote = ref(''), closeReason = ref('WITHDRAWN'), confirmed = ref(false)
@@ -15,7 +18,16 @@ const owner = computed(() => item.value?.publisherId === auth.session?.userId)
 const base = computed(() => `${admin.value ? '/api/admin/items' : '/api/items'}/${String(route.params.id)}`)
 let sequence = 0
 let controller = new AbortController()
-function reset() { reason.value = ''; internalNote.value = ''; decision.value = 'APPROVED'; closeReason.value = 'WITHDRAWN'; confirmed.value = false; closureNote.value = ''; closureConfirmed.value = false }
+function reset() { reason.value = ''; internalNote.value = ''; decision.value = 'APPROVED'; closeReason.value = 'WITHDRAWN'; confirmed.value = false; closureNote.value = ''; closureConfirmed.value = false; identification.value = ''; claimContact.value = ''; claimConfirmed.value = false }
+async function applyClaim() {
+  if (!item.value || saving.value || stale.value || !claimConfirmed.value) return
+  const current = sequence; saving.value = true; error.value = ''
+  try {
+    const result = await auth.client<ClaimDetail>(`/api/items/${item.value.id}/claims`, { method: 'POST', body: { expectedItemVersion: item.value.version, identification: identification.value.trim(), contact: claimContact.value.trim() }, signal: controller.signal })
+    if (current === sequence) { reset(); await router.push(`/claims/${result.id}`) }
+  } catch (failure) { if (current === sequence) { stale.value = true; error.value = failure instanceof Error ? failure.message : '申请结果未确认，请刷新后核对' } }
+  finally { if (current === sequence) saving.value = false }
+}
 async function load(page = 1) {
   if (saving.value) return
   const current = ++sequence; controller.abort(); controller = new AbortController(); loading.value = true; error.value = ''; item.value = null; stale.value = false; matches.value = []; reset()
@@ -60,15 +72,19 @@ onBeforeUnmount(() => { ++sequence; controller.abort(); item.value = null; match
         <p class="muted">物品 #{{ item.id }} · 记录版本 {{ item.version }} · 内容第 {{ item.contentVersion }} 版</p>
         <p v-if="item.reviewReason">审核反馈：{{ item.reviewReason }}</p><p v-if="admin && item.internalNote">管理内部备注：{{ item.internalNote }}</p>
         <div v-if="!admin" class="button-row"><RouterLink v-if="owner && item.status !== 'CLOSED'" :to="`/items/${item.id}/edit`" class="secondary-button">编辑并重新送审</RouterLink><button class="secondary-button" @click="findMatches">查找相似物品</button></div>
-        <p v-if="!admin" class="item-footnote">本阶段不公开联系方式；认领申请与双向交接将在下一阶段接入。</p>
+        <p v-if="!admin" class="item-footnote">联系方式不公开展示，仅在认领被接受后向交接双方开放。</p>
+        <p v-if="item.hasAcceptedClaim">已有认领进入交接中，暂不能接受新申请。</p>
+        <RouterLink v-if="!admin && item.myClaimId" :to="`/claims/${item.myClaimId}`" class="secondary-button">查看我的认领记录</RouterLink>
+        <RouterLink v-if="owner || admin" :to="`${admin ? '/admin/claims' : '/claims/incoming'}?itemId=${item.id}`" class="secondary-button">查看本物品的认领</RouterLink>
         <ul v-if="matches.length"><li v-for="match in matches" :key="match.id"><RouterLink :to="`/items/${match.id}`">{{ match.title }}</RouterLink> · 相似度 {{ match.score }}%</li></ul>
       </article>
+      <form v-if="!admin && !owner && item.type === 'FOUND' && item.status === 'APPROVED' && !item.hasAcceptedClaim && !item.myClaimId" class="form-card item-form" @submit.prevent="applyClaim"><h2>申请认领</h2><p>请描述只有物主知道的特征。每件物品只能申请一次，结束后不能重提。</p><fieldset :disabled="saving || stale"><label>认领特征说明<textarea v-model="identification" required maxlength="1000" /></label><label>本次交接联系方式<input v-model="claimContact" required maxlength="100" autocomplete="off" /></label><label class="check-label"><input v-model="claimConfirmed" type="checkbox" required />确认物品属于本人，并同意提供本次交接信息</label><button class="primary-button">提交认领申请</button></fieldset></form>
       <form v-if="admin && item.status === 'PENDING'" class="form-card item-form" @submit.prevent="act('review')">
         <h2>审核当前内容</h2>
         <fieldset :disabled="saving || stale"><label>决定<select v-model="decision"><option value="APPROVED">通过并公开</option><option value="REJECTED">驳回修改</option></select></label><label v-if="decision === 'REJECTED'">驳回原因<textarea v-model="reason" required maxlength="500" /></label><label>内部备注（仅管理员可读）<textarea v-model="internalNote" maxlength="500" /></label><label class="check-label"><input v-model="confirmed" type="checkbox" required />已核对本页当前内容及图片</label><button class="primary-button" type="submit">{{ saving ? '处理中…' : '提交审核决定' }}</button></fieldset>
       </form>
       <form v-if="(owner || admin) && item.status !== 'CLOSED'" class="form-card item-form" @submit.prevent="act('close')">
-        <h2>{{ admin ? '管理下架' : '关闭启事' }}</h2><p class="muted">关闭后不能重开，也不会继续出现在大厅。</p>
+        <h2>{{ admin ? '管理下架' : '关闭启事' }}</h2><p class="muted">关闭后不能重开。有进行中的认领时不能自行关闭；已有单方交接确认时，管理员须从认领异常处置入口处理。</p>
         <fieldset :disabled="saving || stale"><label v-if="!admin">关闭方式<select v-model="closeReason"><option value="WITHDRAWN">主动撤回</option><option v-if="item.type === 'LOST'" value="FOUND_BY_OWNER">本人已找回</option></select></label><label>原因<textarea v-model="closureNote" required maxlength="500" /></label><label class="check-label"><input v-model="closureConfirmed" type="checkbox" required />确认关闭当前记录</label><button class="secondary-button" type="submit">{{ saving ? '处理中…' : '确认关闭' }}</button></fieldset>
       </form>
       <section v-if="item.timeline" class="form-card item-article"><h2>操作历史</h2><ol><li v-for="event in item.timeline.records" :key="event.id"><strong>{{ itemActions[event.action] || event.action }}</strong> · <time>{{ new Date(event.occurredAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) }}</time><p v-if="event.message">{{ event.message }}</p></li></ol><p v-if="!item.timeline.records.length">尚无历史记录（旧数据不会补造历史）。</p><PageNavigation :page="item.timeline.page" :page-size="item.timeline.pageSize" :total="item.timeline.total" :busy="loading || saving" @change="load" /></section>

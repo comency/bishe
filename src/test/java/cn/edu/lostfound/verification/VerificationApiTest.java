@@ -97,6 +97,19 @@ class VerificationApiTest {
     verify(store).lock(7L);
     verifyNoInteractions(em);
   }
+  @Test void counterpartExpiryAtCommitIsConflictWithoutPrivateReason(){
+    when(store.lock(7L)).thenReturn(Optional.of(qualification(7L,"VERIFIED",true,"TEST_CAMPUS")));
+    TransactionSynchronizationManager.initSynchronization();api.lockCounterpartEligible(7L);clock.now=EXPIRY;
+    assertThatThrownBy(()->TransactionSynchronizationManager.getSynchronizations().getFirst().beforeCommit(false))
+      .isInstanceOfSatisfying(BusinessException.class,e->{assertThat(e.getHttpStatus()).isEqualTo(409);assertThat(e.getErrorCode()).isEqualTo("COUNTERPART_INELIGIBLE");});
+  }
+  @Test void eligibilityProjectionReturnsFalseWithoutThrowingForRevokedAccount(){
+    when(store.find(7L)).thenReturn(Optional.of(qualification(7L,"REVOKED",true,"TEST_CAMPUS")));assertThat(api.eligible(7L)).isFalse();
+  }
+  @Test void missingCounterpartDoesNotMisidentifyCallerAsIneligible(){
+    when(store.lock(7L)).thenReturn(Optional.empty());
+    assertThatThrownBy(()->api.lockCounterpartEligible(7L)).isInstanceOfSatisfying(BusinessException.class,e->assertThat(e.getErrorCode()).isEqualTo("COUNTERPART_INELIGIBLE"));
+  }
   static CampusProperties campus() {
     return new CampusProperties("TEST_CAMPUS","测试校园","Asia/Shanghai",true,"合成测试核验","测试管理员");
   }

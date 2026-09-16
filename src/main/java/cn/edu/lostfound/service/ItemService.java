@@ -1,6 +1,7 @@
 package cn.edu.lostfound.service;
 
 import cn.edu.lostfound.audit.AuditApi;
+import cn.edu.lostfound.claim.ClaimApi;
 import cn.edu.lostfound.common.BusinessException;
 import cn.edu.lostfound.config.CampusProperties;
 import cn.edu.lostfound.dto.ItemDtos;
@@ -26,15 +27,16 @@ public class ItemService {
   private final AccountApi accounts;
   private final MediaService media;
   private final AuditApi audit;
+  private final ClaimApi claims;
   private final JdbcTemplate jdbc;
   private final Clock clock;
   private final CampusProperties campus;
   private final ZoneId legacyZone;
   public ItemService(ItemRepository items,UserRepository users,VerificationApi verification,AccountApi accounts,
-      MediaService media,AuditApi audit,JdbcTemplate jdbc,Clock clock,CampusProperties campus,
+      MediaService media,AuditApi audit,ClaimApi claims,JdbcTemplate jdbc,Clock clock,CampusProperties campus,
       @Value("${app.items.legacy-timezone:Asia/Shanghai}") String legacyZone){
     this.items=items;this.users=users;this.verification=verification;this.accounts=accounts;this.media=media;
-    this.audit=audit;this.jdbc=jdbc;this.clock=clock;this.campus=campus;this.legacyZone=ZoneId.of(legacyZone);
+    this.audit=audit;this.claims=claims;this.jdbc=jdbc;this.clock=clock;this.campus=campus;this.legacyZone=ZoneId.of(legacyZone);
   }
   public static BusinessException hidden(){return new BusinessException(404,"NOT_ACCESSIBLE","物品不存在或不可访问");}
   private static void conflict(String code,String message){throw new BusinessException(409,code,message);}
@@ -69,8 +71,7 @@ public class ItemService {
   @Transactional(isolation=Isolation.READ_COMMITTED)
   public Map<String,Object> update(long id,long actor,ItemDtos.Update r){
     verification.lockEligible(actor);validate(r.content());Item i=locked(id,actor,r.expectedVersion);
-    // Claims do not exist in this release. The claim module must acquire this item
-    // lock and add its active-claim guard here before enabling claim creation.
+    claims.ensureNoActive(id);
     String from=i.getStatus();
     i.update(r.title.trim(),r.description.trim(),r.type,r.category,r.location,r.occurredAt);i.resubmit();i.changed(clock.instant(),campus.zoneId());
     media.bind(id,actor,r.getImageIds());logged(i,"ITEM_EDITED",actor,false,from,null,null);return detail(i,actor,false,1,10);
@@ -101,6 +102,7 @@ public class ItemService {
   }
   private Map<String,Object> closeEntity(Item i,long actor,boolean admin,String code,String reason,String note){
     if(reason==null||reason.isBlank())throw new IllegalArgumentException("关闭必须填写原因");
+    if(admin)claims.adminClosing(i.getId(),actor,reason);else claims.ensureNoActive(i.getId());
     String from=i.getStatus();i.close(code,reason,clock.instant());i.changed(clock.instant(),campus.zoneId());
     logged(i,"ITEM_CLOSED",actor,admin,from,reason,note);return detail(i,actor,admin,1,10);
   }
@@ -135,28 +137,28 @@ public class ItemService {
       if(itemId!=null)predicates.add(cb.equal(root.get("id"),itemId));
       return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
     },PageRequest.of(page-1,size,Sort.by(Sort.Direction.DESC,"createdAt","id")));
-    return new ItemDtos.Page<>(result.getContent().stream().map(this::summary).toList(),result.getTotalElements(),page,size);
+    return new ItemDtos.Page<>(result.getContent().stream().map(i->summary(i,actor)).toList(),result.getTotalElements(),page,size);
   }
   private Map<String,Object> legacy(Item i){
     var m=new LinkedHashMap<String,Object>();m.put("id",i.getId());m.put("publisherId",i.getPublisherId());m.put("title",i.getTitle());m.put("description",i.getDescription());
     m.put("type",i.getType());m.put("category",i.getCategory());m.put("location",i.getLocation());m.put("occurredAt",i.getOccurredAt());m.put("status",i.getStatus());m.put("createdAt",i.getCreatedAt());return m;
   }
-  private Map<String,Object> summary(Item i){
+  private Map<String,Object> summary(Item i,long actor){
     var m=legacy(i);m.remove("description");m.put("publisherNickname",i.getPublisher().getNickname());m.put("closeReason",i.getCloseReason());
     m.put("createdAt",i.createdInstant(legacyZone));m.put("version",i.getVersion());m.put("contentVersion",i.getContentVersion());m.put("images",media.images(i.getId()));
-    m.put("hasAcceptedClaim",false);m.put("myClaimId",null);return m;
+    m.put("hasAcceptedClaim",claims.hasAccepted(i.getId()));m.put("myClaimId",claims.myClaim(i.getId(),actor));return m;
   }
   private Map<String,Object> detail(Item i,long actor,boolean admin,int page,int size){
-    var m=summary(i);m.put("description",i.getDescription());m.put("updatedAt",i.updatedInstant(legacyZone));
+    var m=summary(i,actor);m.put("description",i.getDescription());m.put("updatedAt",i.updatedInstant(legacyZone));
     if(admin||i.getPublisherId().equals(actor)){
       m.put("reviewReason",i.getReviewReason());
-      var records=jdbc.query("SELECT id,event_type,occurred_at,user_reason FROM business_logs WHERE item_id=? ORDER BY id DESC LIMIT ? OFFSET ?",(rs,n)->{
+      var records=jdbc.query("SELECT id,event_type,occurred_at,user_reason FROM business_logs WHERE item_id=? AND claim_id IS NULL ORDER BY id DESC LIMIT ? OFFSET ?",(rs,n)->{
         var event=new LinkedHashMap<String,Object>();event.put("id",rs.getLong("id"));event.put("action",rs.getString("event_type"));
         event.put("occurredAt",rs.getObject("occurred_at",LocalDateTime.class).toInstant(ZoneOffset.UTC));event.put("message",rs.getString("user_reason"));return event;
       },i.getId(),size,(page-1)*size);
-      m.put("timeline",new ItemDtos.Page<>(records,jdbc.queryForObject("SELECT COUNT(*) FROM business_logs WHERE item_id=?",Long.class,i.getId()),page,size));
+      m.put("timeline",new ItemDtos.Page<>(records,jdbc.queryForObject("SELECT COUNT(*) FROM business_logs WHERE item_id=? AND claim_id IS NULL",Long.class,i.getId()),page,size));
     }
-    if(admin){var notes=jdbc.query("SELECT internal_note FROM business_logs WHERE item_id=? AND actor_kind='ADMIN' ORDER BY id DESC LIMIT 1",(rs,n)->rs.getString(1),i.getId());m.put("internalNote",notes.isEmpty()?null:notes.get(0));}
+    if(admin){var notes=jdbc.query("SELECT internal_note FROM business_logs WHERE item_id=? AND claim_id IS NULL AND actor_kind='ADMIN' ORDER BY id DESC LIMIT 1",(rs,n)->rs.getString(1),i.getId());m.put("internalNote",notes.isEmpty()?null:notes.get(0));}
     return m;
   }
   public List<Map<String,Object>> matches(Long id,Long actor,boolean ignoredAdmin){

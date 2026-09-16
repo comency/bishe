@@ -14,7 +14,7 @@ public class WebConfig implements WebMvcConfigurer {
   public WebConfig(AuthInterceptor authInterceptor, AccountRateLimitInterceptor rateLimiter) { this.authInterceptor = authInterceptor; this.rateLimiter = rateLimiter; }
   @Override public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(authInterceptor).addPathPatterns("/**").excludePathPatterns("/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/public/config", "/error");
-    registry.addInterceptor(rateLimiter).addPathPatterns("/api/auth/login", "/api/auth/register", "/api/verifications/me");
+    registry.addInterceptor(rateLimiter).addPathPatterns("/api/auth/login", "/api/auth/register", "/api/verifications/me", "/api/items/*/claims");
   }
   @Override public void addCorsMappings(CorsRegistry registry) { registry.addMapping("/**").allowedOrigins("*").allowedMethods("*").allowedHeaders("*"); }
 }

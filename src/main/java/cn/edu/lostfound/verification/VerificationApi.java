@@ -42,8 +42,26 @@ public class VerificationApi {
 
   @Transactional(propagation=Propagation.MANDATORY)
   public void lockEligible(Long userId) {
-    var q=store.lock(userId).orElseThrow(VerificationApi::ineligible);
-    checkEligible(q,clock.instant());
+    lockEligible(userId,false);
+  }
+
+  @Transactional(propagation=Propagation.MANDATORY)
+  public void lockCounterpartEligible(Long userId) {
+    lockEligible(userId,true);
+  }
+
+  /** Non-throwing projection avoids marking a read transaction rollback-only. */
+  @Transactional(readOnly=true,isolation=Isolation.READ_COMMITTED)
+  public boolean eligible(Long userId) {
+    var q=store.find(userId);
+    if(q.isEmpty())return false;
+    try {checkEligible(q.get(),clock.instant());return true;}
+    catch(BusinessException e){if(e.getHttpStatus()==403)return false;throw e;}
+  }
+
+  private void lockEligible(Long userId,boolean counterpart) {
+    var q=store.lock(userId).orElseThrow(()->counterpart?counterpartIneligible():ineligible());
+    checkParticipant(q,clock.instant(),counterpart);
     EligibilityCommitGuard guard=null;
     for(var synchronization:TransactionSynchronizationManager.getSynchronizations()) {
       if(synchronization instanceof EligibilityCommitGuard existing) { guard=existing;break; }
@@ -53,6 +71,15 @@ public class VerificationApi {
       TransactionSynchronizationManager.registerSynchronization(guard);
     }
     guard.userIds.add(userId);
+    if(counterpart&&!guard.actorIds.contains(userId))guard.counterpartIds.add(userId);
+    if(!counterpart){guard.actorIds.add(userId);guard.counterpartIds.remove(userId);}
+  }
+
+  private void checkParticipant(VerificationStore.Qualification q,Instant now,boolean counterpart) {
+    try {checkEligible(q,now);} catch(BusinessException e) {
+      if(counterpart&&e.getHttpStatus()==403)throw counterpartIneligible();
+      throw e;
+    }
   }
 
   @Transactional(propagation=Propagation.MANDATORY)
@@ -85,16 +112,21 @@ public class VerificationApi {
   private static BusinessException ineligible() {
     return new BusinessException(403,"VERIFICATION_REQUIRED","当前校园身份未认证或已失效，请先完成人工核验");
   }
+  private static BusinessException counterpartIneligible() {
+    return new BusinessException(409,"COUNTERPART_INELIGIBLE","对方当前不具备交接资格，请等待重新核验");
+  }
   private final class EligibilityCommitGuard implements TransactionSynchronization {
     private final TreeSet<Long> userIds=new TreeSet<>();
+    private final TreeSet<Long> counterpartIds=new TreeSet<>();
+    private final TreeSet<Long> actorIds=new TreeSet<>();
     @Override public void beforeCommit(boolean readOnly) {
       // Flush first, then obtain current locked facts, then take the final time sample.
       // No external I/O, extra business writes, or waits may follow this eligibility boundary.
       entityManager.flush();
       List<VerificationStore.Qualification> qualifications=new ArrayList<>();
-      for(Long id:userIds) qualifications.add(store.lock(id).orElseThrow(VerificationApi::ineligible));
+      for(Long id:userIds) qualifications.add(store.lock(id).orElseThrow(()->counterpartIds.contains(id)?counterpartIneligible():ineligible()));
       Instant now=clock.instant();
-      for(var q:qualifications) checkEligible(q,now);
+      for(var q:qualifications) checkParticipant(q,now,counterpartIds.contains(q.userId()));
     }
   }
 }

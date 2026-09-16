@@ -26,10 +26,12 @@ public class Item {
   private Instant closedAt;
   private Instant createdAtUtc;
   private Instant updatedAtUtc;
+  private long claimRevision;
   protected Item() {}
   public Item(User publisher,String title,String description,String type,String category,String location,LocalDate occurredAt){this.publisher=publisher;this.title=title;this.description=description;this.type=type;this.category=category;this.location=location;this.occurredAt=occurredAt;}
   public void initializeTime(Instant now,ZoneId zone){createdAtUtc=now;updatedAtUtc=now;createdAt=LocalDateTime.ofInstant(now,zone);updatedAt=createdAt;}
   public void changed(Instant now,ZoneId zone){updatedAtUtc=now;updatedAt=LocalDateTime.ofInstant(now,zone);}
+  public void occupationChanged(Instant now,ZoneId zone){claimRevision++;changed(now,zone);}
   public long getVersion(){return version;}
   public long getContentVersion(){return contentVersion;}
   public String getReviewReason(){return reviewReason;}

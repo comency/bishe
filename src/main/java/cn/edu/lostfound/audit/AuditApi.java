@@ -20,6 +20,19 @@ public class AuditApi {
   public AuditApi(JdbcTemplate jdbc,Clock clock) { this.jdbc=jdbc;this.clock=clock; }
 
   @Transactional(propagation=Propagation.MANDATORY)
+  public void claim(String event,Long actorId,boolean admin,long itemId,long claimId,String from,String to,
+      long version,String code,String reason,String conclusion,String note) {
+    if(!Set.of("CLAIM_APPLIED","CLAIM_ACCEPTED","CLAIM_REJECTED","CLAIM_CANCELLED","CLAIM_HANDOVER_CONFIRMED",
+        "CLAIM_RECEIPT_CONFIRMED","CLAIM_COMPLETED","CLAIM_RESOLVED_CONTINUE","CLAIM_RESOLVED_TERMINATE").contains(event))
+      throw new IllegalArgumentException("Unsupported claim event");
+    jdbc.update("""
+      INSERT INTO business_logs(event_type,actor_id,actor_kind,item_id,claim_id,from_state,to_state,object_version,
+      reason_code,user_reason,resolution_conclusion,internal_note,trace_id,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      """,event,actorId,actorId==null?"SYSTEM":admin?"ADMIN":"USER",itemId,claimId,from,to,version,code,reason,conclusion,note,
+      UUID.randomUUID().toString(),LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC));
+  }
+
+  @Transactional(propagation=Propagation.MANDATORY)
   public void item(String event,Long actorId,boolean admin,Long owner,Long itemId,String from,String to,
       long version,long contentVersion,String reason,String internalNote) {
     if(!Set.of("ITEM_CREATED","ITEM_EDITED","ITEM_APPROVED","ITEM_REJECTED","ITEM_CLOSED").contains(event))

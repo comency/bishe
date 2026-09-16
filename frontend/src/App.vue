@@ -58,11 +58,15 @@ async function signOut() {
       <nav>
         <RouterLink v-if="auth.canUseBusiness" to="/items" class="nav-link"><span aria-hidden="true">▦</span> 物品大厅</RouterLink>
         <RouterLink v-if="auth.canUseBusiness" to="/items/mine" class="nav-link">我的发布</RouterLink>
+        <RouterLink v-if="auth.canUseBusiness" to="/claims/mine" class="nav-link">我的认领</RouterLink>
+        <RouterLink v-if="auth.canUseBusiness" to="/claims/incoming" class="nav-link">收到的认领</RouterLink>
         <template v-if="auth.hasSession">
           <RouterLink to="/verification" class="nav-link"><span aria-hidden="true">✓</span> 校园认证</RouterLink>
           <RouterLink to="/profile" class="nav-link"><span aria-hidden="true">◇</span> 本人资料</RouterLink>
           <RouterLink v-if="auth.isAdmin" to="/admin/verifications" class="nav-link"><span aria-hidden="true">▤</span> 人工认证审核</RouterLink>
           <RouterLink v-if="auth.isAdmin" to="/admin/items" class="nav-link">物品内容审核</RouterLink>
+          <RouterLink v-if="auth.isAdmin" to="/admin/claims" class="nav-link">认领管理</RouterLink>
+          <RouterLink v-if="auth.isAdmin" to="/admin/logs" class="nav-link">业务操作日志</RouterLink>
         </template>
         <template v-else>
           <RouterLink to="/login" class="nav-link">登录</RouterLink>
