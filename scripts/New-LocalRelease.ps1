@@ -5,6 +5,7 @@ param([switch]$CreateCandidate)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if(-not $CreateCandidate){throw 'Explicit -CreateCandidate required before filesystem/build actions.'}
+if(@(Get-ChildItem Env: | Where-Object {$_.Name -like 'SPRING_*' -or $_.Name -in @('JAVA_TOOL_OPTIONS','JDK_JAVA_OPTIONS','_JAVA_OPTIONS')}).Count){throw 'Remove inherited Spring/JVM overrides before candidate build; no values are printed.'}
 $projectRoot=Split-Path -Parent $PSScriptRoot
 $javaRoot='C:\Program Files\Java\jdk-21'
 if(-not (Test-Path -LiteralPath (Join-Path $javaRoot 'bin\javac.exe'))){throw 'Existing JDK21 required.'}

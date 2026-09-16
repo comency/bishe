@@ -47,6 +47,17 @@ try {
     $candidateDenied=$false
     try { & (Join-Path $PSScriptRoot 'New-LocalRelease.ps1') } catch { $candidateDenied=$_.Exception.Message -match 'CreateCandidate' }
     Assert-Check $candidateDenied 'Candidate builder refuses missing consent before filesystem/build actions.'
+    foreach($overrideName in @('SPRING_DATASOURCE_URL','JAVA_TOOL_OPTIONS')){
+        $priorOverride=[Environment]::GetEnvironmentVariable($overrideName,'Process')
+        try {
+            [Environment]::SetEnvironmentVariable($overrideName,'synthetic-must-not-be-used','Process')
+            foreach($guarded in @(@{File='New-LocalRelease.ps1';Args=@{CreateCandidate=$true}},@{File='Test-IsolatedDatabase.ps1';Args=@{ConfirmIsolatedRehearsal=$true}})){
+                $overrideDenied=$false;$guardArgs=$guarded.Args
+                try { & (Join-Path $PSScriptRoot $guarded.File) @guardArgs } catch { $overrideDenied=$_.Exception.Message -match 'Remove inherited Spring/JVM overrides' -and $_.Exception.Message -notmatch 'synthetic-must-not-be-used' }
+                Assert-Check $overrideDenied 'Build/rehearsal refuses inherited connection or JVM overrides without echoing values.'
+            }
+        } finally {[Environment]::SetEnvironmentVariable($overrideName,$priorOverride,'Process')}
+    }
 
     $docker = (Get-Command docker.exe -CommandType Application -ErrorAction Stop).Source
     $json = & $docker --context desktop-linux compose --project-name campus-lost-found-local --file $composeFile --profile integration config --format json
