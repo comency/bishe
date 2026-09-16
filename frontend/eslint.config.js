@@ -10,7 +10,7 @@ export default tseslint.config(
   {
     files: ['**/*.vue'],
     languageOptions: {
-      globals: { AbortController: 'readonly', TextEncoder: 'readonly', URLSearchParams: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' },
+      globals: { AbortController: 'readonly', TextEncoder: 'readonly', URLSearchParams: 'readonly', URL: 'readonly', Blob: 'readonly', FormData: 'readonly', Event: 'readonly', HTMLInputElement: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' },
       parserOptions: { parser: tseslint.parser },
     },
   },

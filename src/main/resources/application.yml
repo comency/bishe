@@ -2,6 +2,10 @@ server:
   address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   application:
     name: campus-lost-found-ai
   jackson:
@@ -36,6 +40,12 @@ ai:
   api-key: ${AI_API_KEY:}
   model: gpt-4o-mini
 app:
+  media:
+    root: ${MEDIA_ROOT:.local/media-dev}
+    cleanup-enabled: ${MEDIA_CLEANUP_ENABLED:false}
+    max-pixels: 12000000
+    max-edge: 8192
+    temporary-hours: 24
   session-ttl-hours: 24
   admin-password: ${ADMIN_PASSWORD:}
   campus:

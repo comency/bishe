@@ -8,7 +8,7 @@ import { session, profile, envelope } from './identity-fixtures'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('safe navigation and route guards', () => {
-  it.each(['https://example.com', '//example.com', '/\\example.com', '/login', '/register', '/admin/items', '/items/42', '/items#unsafe', '/items\n'])('rejects unapproved return destination %s', input => {
+  it.each(['https://example.com', '//example.com', '/\\example.com', '/login', '/register', '/admin/unknown', '/items/42/delete', '/items#unsafe', '/items\n'])('rejects unapproved return destination %s', input => {
     expect(safeReturnTo(input)).toBe('/items')
   })
 
@@ -18,6 +18,7 @@ describe('safe navigation and route guards', () => {
     expect(safeReturnTo('/profile')).toBe('/profile')
     expect(safeReturnTo('/verification')).toBe('/verification')
     expect(safeReturnTo('/admin/verifications/3')).toBe('/admin/verifications/3')
+    for (const path of ['/items/new', '/items/mine', '/items/42', '/items/42/edit', '/admin/items', '/admin/items/42']) expect(safeReturnTo(path)).toBe(path)
   })
 
   it('redirects unauthenticated navigation to login and retains a safe destination', async () => {

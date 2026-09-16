@@ -40,6 +40,8 @@ public class AuthInterceptor implements HandlerInterceptor {
       if (path.isEmpty()) path=request.getRequestURI().substring(request.getContextPath().length());
       if (path.startsWith("/api/admin/")) {
         if (!"ADMIN".equals(role)) throw new BusinessException(403, "FORBIDDEN", "仅管理员可操作");
+      } else if ("ADMIN".equals(role) && "GET".equals(request.getMethod()) && path.matches("/api/uploads/images/[1-9][0-9]*")) {
+        // MediaService still enforces object visibility, especially private TEMPORARY uploads.
       } else if (!path.equals("/api/users/me") && !path.equals("/api/verifications/me")) {
         // Unknown business endpoints fail closed. ADMIN participants must also be eligible.
         verification.requireEligible(userId);

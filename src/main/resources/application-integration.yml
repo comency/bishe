@@ -18,6 +18,8 @@ spring:
       username: ${TEST_REDIS_USERNAME:}
       password: ${TEST_REDIS_PASSWORD:}
 app:
+  media:
+    root: ${TEST_MEDIA_ROOT:.local/media-test}
   admin-password: ${TEST_ADMIN_PASSWORD:}
 ai:
   enabled: false

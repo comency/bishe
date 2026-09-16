@@ -12,6 +12,7 @@ export interface RequestOptions {
   auth?: boolean
   signal?: AbortSignal
   timeoutMs?: number
+  responseType?: 'blob'
 }
 
 interface ClientOptions {
@@ -46,17 +47,18 @@ export function createRequest(client: ClientOptions) {
       const response = await (client.fetcher ?? fetch)(path, {
         method: options.method ?? 'GET',
         headers: {
-          Accept: 'application/json',
-          ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          Accept: options.responseType === 'blob' ? 'image/jpeg, image/png, application/json' : 'application/json',
+          ...(options.body !== undefined && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
           ...(token ? { 'X-Token': token } : {}),
         },
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: options.body instanceof FormData ? options.body : options.body === undefined ? undefined : JSON.stringify(options.body),
         credentials: 'same-origin',
         cache: 'no-store',
         redirect: 'error',
         signal: controller.signal,
       })
-      const payload: unknown = await response.json().catch(error => {
+      const binary = options.responseType === 'blob' && response.ok
+      const payload: unknown = await (binary ? response.blob() : response.json()).catch(error => {
         if (controller.signal.aborted) throw error
         return null
       })
@@ -77,6 +79,10 @@ export function createRequest(client: ClientOptions) {
           ? `${message}。请刷新最新记录后重新决定，操作不会自动重试。` : message,
         response.status, isEnvelope(payload) ? payload.code : undefined,
         isEnvelope(payload) ? payload.errorCode : undefined, isEnvelope(payload) ? payload.traceId : undefined)
+      }
+      if (binary) {
+        if (!(payload instanceof Blob) || !['image/jpeg', 'image/png'].includes(payload.type)) throw new ApiError('图片返回格式不正确。')
+        return payload as T
       }
       if (!isEnvelope(payload)) throw new ApiError('接口返回格式不正确，请检查后端服务。', response.status)
       if (payload.code !== 0) throw new ApiError(payload.message || '操作未成功，请检查输入。', response.status, payload.code)

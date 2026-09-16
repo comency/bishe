@@ -3,5 +3,6 @@ import App from './App.vue'
 import { pinia } from './stores'
 import { createAppRouter } from './router'
 import './styles.css'
+import './item-styles.css'
 
 createApp(App).use(pinia).use(createAppRouter(pinia)).mount('#app')

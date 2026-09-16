@@ -20,6 +20,18 @@ public class AuditApi {
   public AuditApi(JdbcTemplate jdbc,Clock clock) { this.jdbc=jdbc;this.clock=clock; }
 
   @Transactional(propagation=Propagation.MANDATORY)
+  public void item(String event,Long actorId,boolean admin,Long owner,Long itemId,String from,String to,
+      long version,long contentVersion,String reason,String internalNote) {
+    if(!Set.of("ITEM_CREATED","ITEM_EDITED","ITEM_APPROVED","ITEM_REJECTED","ITEM_CLOSED").contains(event))
+      throw new IllegalArgumentException("Unsupported item event");
+    jdbc.update("""
+      INSERT INTO business_logs(event_type,actor_id,actor_kind,subject_user_id,item_id,from_state,to_state,
+      object_version,content_version,user_reason,internal_note,trace_id,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      """,event,actorId,admin?"ADMIN":"USER",owner,itemId,from,to,version,contentVersion,reason,internalNote,
+      UUID.randomUUID().toString(),LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC));
+  }
+
+  @Transactional(propagation=Propagation.MANDATORY)
   public void verification(String event,Long actorId,boolean admin,Long subjectUserId,Long applicationId,
       String fromState,String toState,long version,String reason) {
     if(!EVENTS.contains(event)) throw new IllegalArgumentException("Unsupported audit event");

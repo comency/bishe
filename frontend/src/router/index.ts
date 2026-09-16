@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth'
 // Only implemented, same-origin routes can be login return destinations.
 export function safeReturnTo(value: unknown): string {
   if (typeof value !== 'string' || /[\\\r\n]/.test(value)) return '/items'
-  return /^\/(?:items|profile|verification|admin\/verifications(?:\/\d+)?)(?:\?[^#]*)?$/.test(value) ? value : '/items'
+  return /^\/(?:items(?:\/(?:new|mine|\d+(?:\/edit)?))?|profile|verification|admin\/(?:verifications|items)(?:\/\d+)?)(?:\?[^#]*)?$/.test(value) ? value : '/items'
 }
 
 export function createAppRouter(pinia: Pinia, history: RouterHistory = createWebHistory()) {
@@ -16,6 +16,12 @@ export function createAppRouter(pinia: Pinia, history: RouterHistory = createWeb
       { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { title: '登录', guest: true } },
       { path: '/register', name: 'register', component: () => import('../views/RegisterView.vue'), meta: { title: '注册', guest: true } },
       { path: '/items', name: 'items', component: () => import('../views/ItemsView.vue'), meta: { title: '物品大厅', requiresAuth: true, requiresVerification: true } },
+      { path: '/items/mine', component: () => import('../views/ItemsView.vue'), meta: { title: '我的发布', requiresAuth: true, requiresVerification: true } },
+      { path: '/items/new', component: () => import('../views/ItemFormView.vue'), meta: { title: '发布启事', requiresAuth: true, requiresVerification: true } },
+      { path: '/items/:id(\\d+)/edit', component: () => import('../views/ItemFormView.vue'), meta: { title: '编辑启事', requiresAuth: true, requiresVerification: true } },
+      { path: '/items/:id(\\d+)', component: () => import('../views/ItemDetailView.vue'), meta: { title: '物品详情', requiresAuth: true, requiresVerification: true } },
+      { path: '/admin/items', component: () => import('../views/ItemsView.vue'), meta: { title: '物品内容审核', requiresAuth: true, requiresAdmin: true } },
+      { path: '/admin/items/:id(\\d+)', component: () => import('../views/ItemDetailView.vue'), meta: { title: '物品审核详情', requiresAuth: true, requiresAdmin: true } },
       { path: '/verification', name: 'verification', component: () => import('../views/VerificationView.vue'), meta: { title: '校园身份认证', requiresAuth: true } },
       { path: '/profile', name: 'profile', component: () => import('../views/ProfileView.vue'), meta: { title: '本人资料', requiresAuth: true } },
       { path: '/admin/verifications', name: 'admin-verifications', component: () => import('../views/AdminVerificationsView.vue'), meta: { title: '人工认证审核', requiresAuth: true, requiresAdmin: true } },

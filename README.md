@@ -8,15 +8,16 @@
 - 本人资料与联系方式维护，版本冲突保护
 - 人工在校身份申请、审核、驳回重提、有效期、撤销及允许重核
 - 本人认证历史、管理员审核页面及事务审计；测试认证明确标识
-- 发布、编辑、查看本人失物/招领信息
-- 登录后搜索已审核信息；管理员审核信息
+- 发布、编辑重审、本人关闭，物品详情与公开/本人分页筛选
+- JPEG/PNG受控上传（每张5MiB、最多3张），绑定与私密图片读取
+- 管理员内容审核、驳回原因、内部备注、下架和版本化操作历史
 - 基于字符集合的失物/招领相似度匹配
 - 现有物品与 AI 入口检查实时校园资格；管理员通过独立管理入口审核
 - AI 优化发布文案、失物招领问答（可按需启用）
 
 ## 开发基线与范围
 
-账号与人工在校身份审核阶段已实现，包含文档 API-01～13 及升级准入后的原物品/AI接口，共22个操作。前端包含注册登录、本人资料、认证及管理审核页面。图片、完整发布与内容审核页面、分页详情、认领/双向交接仍属下一阶段；本机使用合成测试校园，尚未满足真实校园上线条件。
+账号与人工在校身份审核，以及物品发布/图片/内容审核阶段已实现，覆盖文档 API-01～29 和两个原AI接口，共31个操作。新前端包含大厅、我的发布、发布/编辑、详情及独立物品审核页。认领/双向交接仍属下一阶段；本机使用合成测试校园，尚未满足真实校园上线条件。详细实施与边界见 E盘“项目流程/15_物品发布与内容审核实施记录_V1.0.md”。
 
 | 环境 | MySQL（本机 Windows 服务） | 独立 Redis | 后端 | 前端 |
 | --- | --- | --- | --- | --- |
@@ -70,9 +71,9 @@ npm run dev
 
 浏览器访问 `http://127.0.0.1:5174`。前端 `/api` 代理到 `8080`；端口被占用会报错，不自动跳到商城端口。终端服务用 Ctrl+C 退出；仅停止本项目 Redis 可执行 `.\scripts\dev.ps1 redis-stop`，此命令不删除数据卷。
 
-后端由 Flyway 执行版本化迁移，JPA 仅 `validate` 校验。V1 创建原 `users`、`items`；V2 扩展账号，增加 `campus_verifications`、`verification_applications`、`business_logs`，保留旧 `phone` 列（不超过100字符的值回填 `contact`），并为全部旧账号创建 UNVERIFIED 资格。共5张业务表，尚非完整八表设计。升级已有库前备份；已应用的迁移不可回改。管理员仅在密码已配置且 `admin` 不存在时创建，账号和未认证资格同事务创建，已有密码不覆盖。
+后端由 Flyway 执行版本化迁移，JPA 仅 `validate` 校验。V1 创建原 `users`、`items`；V2 扩展账号并增加认证与日志；V3 扩展物品版本、审核/关闭字段，增加 `media_files` 与 `item_images`。共7张业务表，认领表尚未实现。旧 `phone`、物品时间与宽文本列保留，不截断旧数据；新UTC物品时间单独保存。升级已有库前备份；已应用的迁移不可回改。管理员仅在密码已配置且 `admin` 不存在时创建，账号和未认证资格同事务创建，已有密码不覆盖。
 
-V2 将旧本机合成账号标为测试数据、校园标识为 `TEST_CAMPUS`，不会自动认证。切换真实校园需独立数据及经审核的迁移；不能只改测试开关复用测试审批。当前开发库若尚在V1，下次启动会执行V2，请先备份；本轮迁移验证使用隔离测试库。
+V2 将旧本机合成账号标为测试数据、校园标识为 `TEST_CAMPUS`，不会自动认证。切换真实校园需独立数据及经审核的迁移。当前开发库仍在V1，下次启动会执行V2、V3，必须先备份并核对历史时间含义、空时间及CLOSED记录；V3遇到无法解释关闭原因的旧记录会停止，不伪造原因。本轮只升级了隔离测试库。
 
 如不使用本机加密凭据，在当前终端或 IDE 配置 `.env.example` 中的实际变量；`-UseUserEnvironment` 可显式读取用户环境的凭据。`.env.example` 只是说明，Spring Boot 不会自动加载 `.env`。运行账号默认 `lost_found_app`，不要长期使用初始化时的管理账号。脚本拒绝继承的 `SPRING_*` 覆盖，防止误连别的工程；直接从 IDE 启动时也需自行检查配置优先级。
 
@@ -102,6 +103,7 @@ $previousTestAdminPassword = $env:TEST_ADMIN_PASSWORD
 $env:TEST_ADMIN_PASSWORD = $testAdmin.GetNetworkCredential().Password
 try {
   node scripts/check-identity-api.mjs --confirm-test-environment
+  node scripts/check-items-api.mjs --confirm-test-environment
   node scripts/smoke-api.mjs --confirm-test-environment
 }
 finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
@@ -111,7 +113,11 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 真实浏览器验收：另启动 `cd frontend; npm run dev:integration`，按同样方式在运行脚本的进程中设置 `TEST_ADMIN_PASSWORD`，执行 `node scripts/check-identity-browser.mjs --confirm-test-environment`。使用独立无界面 Edge，真实填写注册、资料、申请和审核表单；截图和结果在 `.local/identity-browser/`。只连接15174/18080，不占用商城15175。
 
-数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD` 后执行 `mvn -Dtest=IdentityDatabaseIntegrationTest test`；测试固定integration，仅新增合成记录。默认 `dev.ps1 verify` 跳过这8项真实数据库测试，仍运行其余回归及打包。验证包含注册/审计故障回滚、到期边界、重复注册/审核、资格撤销与业务写入两个锁顺序。
+物品浏览器验收在同一脚本追加 `--items`：`node scripts/check-identity-browser.mjs --confirm-test-environment --items`；真实上传、发布、驳回、修改重审、公开和关闭，结果在 `.local/items-browser/`。
+
+数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn '-Dtest=IdentityDatabaseIntegrationTest,ItemMediaDatabaseIntegrationTest' test`。默认 `dev.ps1 verify` 跳过13项真实库测试，运行122项普通测试与打包。真实库测试验证资格锁、到期复核、物品审计故障回滚、图片唯一绑定竞争、清理与UTC时刻，不清库。
+
+图片文件根目录默认 `.local/media-dev`，集成测试 `.local/media-test`，均不是静态公开目录。仅受控GET携带X-Token返回图片，前端生成Blob预览并在卸载时撤销。尺寸默认1200万像素、最长边8192，临时图24小时；这些只是可配置的本地技术测试值。`MEDIA_CLEANUP_ENABLED=false` 默认不运行定时清理；显式开启后按小时处理已过期/已移除记录，先PURGING、文件删除成功后DELETED，失败可重试。已绑定文件不清理。提交结果不确定的孤儿文件仅由内部 `orphanInventory()` 列出超过7天且无元数据的候选，需运维核对，不自动删除、不对外暴露路径。
 
 其他独立验证工具：`scripts/check-database-isolation.mjs dev|integration` 使用当前进程的专用 DB 凭据，检查本库 V1 和跨库拒绝；`scripts/check-frontend.mjs --help` 说明真实 Edge 浏览器验证的准备条件。浏览器脚本只连 5174/8080，不新增业务数据，截图与结果输出到已忽略的 `.local/browser-check`。
 
@@ -141,10 +147,16 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 | POST | `/api/items` | 发布信息：title、description、type(LOST/FOUND) 等 |
 | GET | `/api/items?keyword=&type=` | 搜索已审核信息 |
 | GET | `/api/items/mine` | 本人发布记录 |
-| PUT | `/api/items/{id}` | 编辑信息，普通用户修改后重新进入待审核状态 |
-| GET | `/api/items/{id}/matches` | 查询相反类型的相似信息；未公开信息仅发布者或管理员可用 |
+| PUT | `/api/items/{id}` | 仅本人编辑，必填expectedVersion；编辑后重新待审，关闭后不可编辑 |
+| GET | `/api/items/{id}/matches` | 相反类型非零相似候选；未公开基准物品仅本人可用，管理员无普通入口豁免 |
+| GET | `/api/items/page`、`/api/items/mine/page` | 公开/本人分页筛选；pageSize默认10、最大50 |
+| GET | `/api/items/{id}` | 公开或本人详情；他人看不到审核反馈与历史 |
+| POST | `/api/items/{id}/close` | 本人关闭：expectedVersion、closeReason、reason |
 | GET | `/api/admin/items/pending` | 管理员待审核列表 |
-| PUT | `/api/admin/items/{id}/review` | 管理员审核：status |
+| GET | `/api/admin/items`、`/api/admin/items/{id}` | 管理分页与详情 |
+| PUT | `/api/admin/items/{id}/review` | status、expectedVersion；驳回/下架必须有reason，internalNote可选 |
+| POST | `/api/admin/items/{id}/close` | 管理下架：expectedVersion、reason；与review CLOSED同一逻辑 |
+| POST / GET | `/api/uploads/images`、`/api/uploads/images/{id}` | 上传单张图片/按当前对象权限读取二进制图片 |
 | POST | `/api/ai/polish` | AI 润色：content |
 | POST | `/api/ai/chat` | AI 问答：question |
 
@@ -156,4 +168,4 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 ## 毕设论文可写模块
 
-账号、认证、审计已建立独立模块入口；原物品模块仍在逐步升级。MySQL负责持久化与事务资格锁，Redis负责会话过期和限流；AI保留可关闭的调用封装。匹配使用Jaccard字符集合相似度。下一阶段按需求文档推进发布、图片、分页详情和内容审核，再实现认领与双向交接。
+账号、认证、审计、物品与媒体已建立业务入口。MySQL负责持久化与事务资格锁，Redis负责会话过期和限流；匹配使用Jaccard字符集合相似度，仅返回非零候选。下一阶段实现认领与双向交接：认领表与唯一约束、申请/接受/拒绝/取消、双方确认、管理异常处理，并将活动认领限制接入当前物品编辑/关闭锁内。

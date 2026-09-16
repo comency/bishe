@@ -14,6 +14,32 @@ function makeClient(response: Response) {
 afterEach(() => vi.useRealTimers())
 
 describe('API client', () => {
+  it('uploads FormData without forcing a JSON boundary and keeps token in header', async () => {
+    const { request, fetcher } = makeClient(jsonResponse({ code: 0, message: 'success', data: { id: 3 } }))
+    const body = new FormData(); body.append('file', new Blob(['image'], { type: 'image/png' }), 'test.png')
+    await request('/api/uploads/images', { method: 'POST', body })
+    expect(fetcher.mock.calls[0]?.[1]?.body).toBe(body)
+    expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty('Content-Type')
+    expect(fetcher.mock.calls[0]?.[1]?.headers).toHaveProperty('X-Token', 'unit-test-token')
+  })
+  it('returns authenticated image blobs without attempting to parse JSON', async () => {
+    const { request } = makeClient(new Response(new Blob(['image'], { type: 'image/png' })))
+    expect(await request<Blob>('/api/uploads/images/3', { responseType: 'blob' })).toBeInstanceOf(Blob)
+  })
+  it('handles qualification failure on binary reads through the usual invalidation path', async () => {
+    const onVerificationRequired = vi.fn()
+    const request = createRequest({ getToken: () => 'test', onUnauthorized: vi.fn(), onVerificationRequired,
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ code: -1, message: '资格失效', data: null, errorCode: 'VERIFICATION_REQUIRED' }, 403)) })
+    await expect(request('/api/uploads/images/3', { responseType: 'blob' })).rejects.toMatchObject({ status: 403 })
+    expect(onVerificationRequired).toHaveBeenCalledOnce()
+  })
+  it('does not return a late image from a previous session', async () => {
+    let token = 'old'
+    const request = createRequest({ getToken: () => token, onUnauthorized: vi.fn(), fetcher: vi.fn<typeof fetch>().mockImplementation(async () => {
+      token = 'new'; return new Response(new Blob(['image'], { type: 'image/png' }))
+    }) })
+    await expect(request('/api/uploads/images/3', { responseType: 'blob' })).rejects.toThrow('会话或资格已变化')
+  })
   it('uses the existing X-Token contract and only unwraps code 0', async () => {
     const { request, fetcher } = makeClient(jsonResponse({ code: 0, message: 'success', data: [1] }))
     expect(await request('/api/items')).toEqual([1])

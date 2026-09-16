@@ -9,14 +9,15 @@ if (process.argv[2] === '--help') {
   console.log('Start integration backend :18080 and npm run dev:integration (:15174). Set TEST_ADMIN_PASSWORD; run node scripts/check-identity-browser.mjs --confirm-test-environment. Only synthetic test data; no cleanup of database/Redis.');
   process.exit(0);
 }
-if (process.argv.length !== 3 || process.argv[2] !== '--confirm-test-environment' || !process.env.TEST_ADMIN_PASSWORD) {
+const includeItems = process.argv[3] === '--items';
+if (process.argv.length !== (includeItems ? 4 : 3) || process.argv[2] !== '--confirm-test-environment' || !process.env.TEST_ADMIN_PASSWORD) {
   console.error('Explicit test-environment confirmation and TEST_ADMIN_PASSWORD required; use --help.');
   process.exit(1);
 }
 const origin = 'http://127.0.0.1:15174';
 const config = await (await fetch(`${origin}/api/public/config`)).json();
 if (config.data?.isTest !== true) throw new Error('Refusing non-test environment.');
-const output = resolve('.local/identity-browser');
+const output = resolve(includeItems ? '.local/items-browser' : '.local/identity-browser');
 await mkdir(output, { recursive: true });
 const profile = await mkdtemp(join(tmpdir(), 'bishe-identity-browser-'));
 const browser = spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', [
@@ -42,7 +43,7 @@ async function page(target) {
   function send(method, params = {}) {
     return new Promise((resolve, reject) => {
       const id = ++sequence;
-      const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`Browser command timed out: ${method}`)); }, 15000);
+      const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`Browser command timed out: ${method}`)); }, method === 'Page.captureScreenshot' ? 30000 : 15000);
       pending.set(id, { resolve: result => { clearTimeout(timeout); resolve(result); }, reject: () => { clearTimeout(timeout); reject(new Error(`Browser command failed: ${method}`)); } });
       socket.send(JSON.stringify({ id, method, params }));
     });
@@ -88,6 +89,7 @@ async function page(target) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 600 });
     await delay(150);
     await check(`${name}: no horizontal overflow`, 'document.documentElement.scrollWidth <= innerWidth + 1');
+    await evaluate('document.fonts.ready.then(()=>true)');
     const image = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     await writeFile(join(output, `${name}.png`), Buffer.from(image.data, 'base64'));
   }
@@ -169,6 +171,72 @@ try {
   await user.navigate('/items');
   await user.until("!!document.querySelector('.items-page') && !document.querySelector('.spinner')", 'eligible hall access');
   await user.screenshot('eligible-hall-mobile', 375, 900);
+  if (includeItems) {
+    stage = 'item publication and private picture';
+    await user.navigate('/items/new');
+    await user.until("!!document.querySelector('.item-form textarea')", 'item form');
+    await user.fill('.item-form input[maxlength="100"]', '浏览器测试蓝色水杯');
+    await user.fill('.item-form textarea', '合成物品，仅用于自动化测试，无真实个人信息。');
+    await user.evaluate(`(() => {
+      const raw=atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jJ1kAAAAASUVORK5CYII=');
+      const file=new File([Uint8Array.from(raw,c=>c.charCodeAt(0))],'synthetic.png',{type:'image/png'});
+      const data=new DataTransfer();data.items.add(file);const input=document.querySelector('input[type=file]');input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+    })()`);
+    await user.until("!!document.querySelector('.private-image') && !document.querySelector('.item-form fieldset').disabled", 'private upload preview');
+    await user.screenshot('item-publish-mobile', 375, 900);
+    await user.click('.item-form button[type="submit"]');
+    await user.until("/^\\/items\\/\\d+$/.test(location.pathname) && !!document.querySelector('.item-article')", 'published pending item');
+    const itemId = await user.evaluate("Number(location.pathname.split('/').pop())");
+    await user.check('new item awaits review', "document.querySelector('.item-article').innerText.includes('待审核')");
+    await user.until("!!document.querySelector('.private-image')", 'bound image after submission');
+    await user.check('image uses revocable Blob URL rather than public storage', "document.querySelector('.private-image').src.startsWith('blob:')");
+    await admin.navigate(`/admin/items/${itemId}`);
+    await admin.until("!!document.querySelector('.item-form select')", 'item review form');
+    await admin.fill('.item-form select', 'REJECTED');
+    await admin.fill('.item-form textarea', '浏览器测试：请补充颜色');
+    // Each textarea has its own label; fill the internal-note textarea explicitly.
+    await admin.evaluate("(() => { const e=document.querySelectorAll('.item-form')[0].querySelectorAll('textarea')[1];e.value='PRIVATE_ITEM_BROWSER_NOTE';e.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await admin.click('.item-form input[type="checkbox"]');
+    await admin.screenshot('item-review-desktop', 1440, 1000);
+    await admin.click('.item-form button[type="submit"]');
+    await admin.until("document.querySelector('.item-article').innerText.includes('已驳回')", 'item rejection');
+    await user.navigate(`/items/${itemId}`);
+    await user.until("!!document.querySelector('.item-article')", 'owner rejection detail');
+    await user.check('item owner cannot see internal item note', "!document.body.innerText.includes('PRIVATE_ITEM_BROWSER_NOTE')");
+    await user.navigate(`/items/${itemId}/edit`);
+    await user.until("!!document.querySelector('.item-form textarea') && document.querySelector('.item-form textarea').value.length>0", 'loaded editable item');
+    await user.fill('.item-form textarea', '合成物品：蓝色水杯，编辑后需要再次审核。');
+    await user.click('.item-form button[type="submit"]');
+    await user.until("/^\\/items\\/\\d+$/.test(location.pathname) && !!document.querySelector('.item-article')", 'resubmission');
+    await user.check('edited item requires review again', "document.querySelector('.item-article').innerText.includes('待审核')");
+    await admin.navigate(`/admin/items/${itemId}`);
+    await admin.until("!!document.querySelector('.item-form select')", 'new content review');
+    await admin.click('.item-form input[type="checkbox"]');
+    await admin.click('.item-form button[type="submit"]');
+    await admin.until("document.querySelector('.item-article').innerText.includes('已公开')", 'approval');
+    await user.navigate('/items');
+    await user.until("!!document.querySelector('.search-panel')", 'hall search');
+    await user.fill('.search-panel input[type="search"]', '浏览器测试蓝色水杯');
+    await user.click('.search-panel button[type="submit"]');
+    await user.until(`!!document.querySelector('a[href="/items/${itemId}"]')`, 'approved item in hall');
+    await user.screenshot('items-hall-desktop', 1440, 1000);
+    await user.navigate(`/items/${itemId}`);
+    await user.until("!!document.querySelector('.item-form textarea')", 'owner close form');
+    await user.screenshot('item-detail-mobile', 375, 1000);
+    await user.fill('.item-form textarea', '浏览器合成测试结束');
+    await user.click('.item-form input[type="checkbox"]');
+    await user.click('.item-form button[type="submit"]');
+    await user.until("document.querySelector('.item-article').innerText.includes('已关闭')", 'owner closure');
+    await user.check('closed item has no edit/close form', "!document.querySelector('.item-form') && !document.querySelector('a[href$=\"/edit\"]')");
+    await user.navigate('/items/mine');
+    await user.until(`!!document.querySelector('a[href="/items/${itemId}"]')`, 'closed item retained in my publications');
+    await user.screenshot('items-mine-mobile', 375, 1000);
+    await user.navigate('/items');
+    await user.until("!!document.querySelector('.search-panel')", 'hall before revocation');
+    await admin.navigate(`/admin/verifications/${userId}`);
+    await admin.until("!!document.querySelector('#review-reason')", 'identity management restored');
+    checks.push('real item upload/create/reject/edit/approve/public paging/close/private Blob preview');
+  }
   stage = 'revoke approved qualification';
   await admin.fill('#review-reason', '浏览器测试撤销');
   await admin.click('.auth-form button[type="submit"]');
@@ -193,10 +261,10 @@ try {
   await admin.click('.account button');
   await admin.until("location.pathname==='/login'", 'admin logout');
   if (exceptions || externalRequests) throw new Error('Unexpected browser exception or external HTTP request.');
-  if (!responses.some(response => response.path === '/api/items' && response.status === 403)) throw new Error('No real qualification 403 observed.');
+  if (!responses.some(response => response.path === '/api/items/page' && response.status === 403)) throw new Error('No real qualification 403 observed.');
   checks.push('real registration/profile/rejection/resubmission/approval/revocation/reopen/logout', 'zero uncaught exceptions or external HTTP requests');
   await writeFile(join(output, 'result.json'), JSON.stringify({ checks, responses, browserExceptions: exceptions, externalRequests }, null, 2));
-  console.log(`PASS: ${checks.length} real-browser assertions and six responsive screenshots in .local/identity-browser/.`);
+  console.log(`PASS: ${checks.length} real-browser assertions; responsive screenshots in ${output}.`);
 } catch (error) {
   console.error(`${stage}: ${error instanceof Error ? error.message : 'Identity browser check failed.'}`);
   console.error(JSON.stringify(responses.slice(-8)));

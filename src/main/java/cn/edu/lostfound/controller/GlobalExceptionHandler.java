@@ -26,7 +26,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
           .map(error -> error.getField()+": "+error.getDefaultMessage()).orElse("请求参数校验失败");
     } else if (status.is5xxServerError()) message="服务器错误，请稍后重试";
     return super.handleExceptionInternal(ex,
-        ApiResponse.fail(status.is5xxServerError() ? "SERVICE_ERROR" : "VALIDATION_ERROR", message),
+        ApiResponse.fail(status.value()==413 ? "PAYLOAD_TOO_LARGE" : status.is5xxServerError() ? "SERVICE_ERROR" : "VALIDATION_ERROR", message),
         headers, status, request);
   }
 
