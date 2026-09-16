@@ -28,12 +28,12 @@ foreach ($flags in @(@{}, @{ConfirmLocalTrial=$true}, @{DatabaseChecked=$true}))
 $missingRuntime = $false
 try { & (Join-Path $PSScriptRoot 'Start-LocalAi.ps1') -ResourceRoot $projectRoot -ConfirmLocalTrial } catch { $missingRuntime = $_.Exception.Message -match 'portable Ollama' }
 Check $missingRuntime 'Missing runtime never causes an automatic install.'
-foreach ($name in @('check-ai-model.mjs', 'check-ai-live-api.mjs', 'check-ai-live-browser.mjs', 'check-redis-outage.mjs', 'check-cors-api.mjs', 'lib/local-trial-browser.mjs')) {
+foreach ($name in @('check-ai-model.mjs', 'check-ai-recovery.mjs', 'check-ai-live-api.mjs', 'check-ai-live-browser.mjs', 'check-redis-outage.mjs', 'check-cors-api.mjs', 'lib/local-trial-browser.mjs')) {
     & node --check (Join-Path $PSScriptRoot $name)
     Check ($LASTEXITCODE -eq 0) "Node trial script parses: $name"
 }
 # Redirect stderr into the native process stream without exposing any environment.
-foreach ($name in @('check-ai-model.mjs', 'check-ai-live-api.mjs', 'check-ai-live-browser.mjs', 'check-redis-outage.mjs', 'check-cors-api.mjs')) {
+foreach ($name in @('check-ai-model.mjs', 'check-ai-recovery.mjs', 'check-ai-live-api.mjs', 'check-ai-live-browser.mjs', 'check-redis-outage.mjs', 'check-cors-api.mjs')) {
 $guardProcess = New-Object System.Diagnostics.Process
 $guardProcess.StartInfo.FileName = (Get-Command node.exe).Source
 $guardProcess.StartInfo.Arguments = '"' + (Join-Path $PSScriptRoot $name) + '"'

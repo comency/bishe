@@ -41,6 +41,65 @@ class LocalAiClientTest {
   @AfterEach void close(){release.countDown();client.close();server.stop(0);executor.shutdownNow();}
   @Test void disabledNeverCallsProviderOrResources(){client.close();client=create(false,1500);assertThat(client.generate("synthetic",true).reason()).isEqualTo("DISABLED");assertThat(hits.get()).isZero();verifyNoInteractions(resources);}
   @Test void lowMemoryDoesNotCallProvider(){when(resources.available(anyLong())).thenReturn(false);assertThat(client.generate("synthetic",true).reason()).isEqualTo("RESOURCE_LIMIT");assertThat(hits.get()).isZero();}
+  @Test void coldLowMemoryDoesNotWaitOrProbeRepeatedly(){
+    when(resources.available(anyLong())).thenReturn(false);
+    assertThat(client.generate("synthetic",true).reason()).isEqualTo("RESOURCE_LIMIT");
+    verify(resources,times(1)).available(1);assertThat(hits.get()).isZero();
+  }
+  @Test void immediateNextCallRechecksMemoryWithoutLoweringThreshold(){
+    when(resources.available(anyLong())).thenReturn(true,false,false,true);
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+    assertThat(hits.get()).isEqualTo(2);verify(resources,times(4)).available(1);
+  }
+  @Test void persistentPressureAfterCompletionStillRefusesWithoutProviderRetry(){
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+    when(resources.available(anyLong())).thenReturn(false);
+    assertThat(client.generate("合成测试建议",true).reason()).isEqualTo("RESOURCE_LIMIT");
+    assertThat(hits.get()).isEqualTo(1);
+    when(resources.available(anyLong())).thenReturn(true);
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+  }
+  @Test void graceConsumesOriginalDeadlineAndNeverDispatchesAfterIt(){
+    client.close();client=create(true,200);
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+    when(resources.available(anyLong())).thenReturn(false);
+    assertThat(client.generate("合成测试建议",true).reason()).isEqualTo("TIMEOUT");
+    assertThat(hits.get()).isEqualTo(1);
+  }
+  @Test void oldCompletionDoesNotGrantGraceForLaterPressure()throws Exception{
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+    Thread.sleep(1050);clearInvocations(resources);when(resources.available(anyLong())).thenReturn(false);
+    assertThat(client.generate("合成测试建议",true).reason()).isEqualTo("RESOURCE_LIMIT");
+    verify(resources,times(1)).available(1);assertThat(hits.get()).isEqualTo(1);
+  }
+  @Test void upstreamTimeoutDoesNotGrantRecoveryGrace(){
+    client.close();client=create(true,200);stallBody=true;
+    assertThat(client.generate("合成测试建议",true).reason()).isEqualTo("TIMEOUT");
+    clearInvocations(resources);when(resources.available(anyLong())).thenReturn(false);
+    assertThat(client.generate("合成测试建议",true).reason()).isEqualTo("RESOURCE_LIMIT");
+    verify(resources,times(1)).available(1);assertThat(hits.get()).isEqualTo(1);
+  }
+  @Test void concurrentRequestDuringRecoveryIsBusyWithoutWaiting()throws Exception{
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+    var checking=new CountDownLatch(1);var resume=new CountDownLatch(1);
+    when(resources.available(anyLong())).thenAnswer(invocation->{checking.countDown();resume.await(2,TimeUnit.SECONDS);return false;});
+    try(var pool=Executors.newSingleThreadExecutor()){
+      var first=pool.submit(()->client.generate("合成测试建议",true));
+      try{assertThat(checking.await(1,TimeUnit.SECONDS)).isTrue();assertThat(client.generate("another",true).reason()).isEqualTo("BUSY");}
+      finally{resume.countDown();}
+      assertThat(first.get(2,TimeUnit.SECONDS).reason()).isEqualTo("RESOURCE_LIMIT");
+      assertThat(hits.get()).isEqualTo(1);
+    }
+  }
+  @Test void interruptedRecoveryPreservesInterruptAndReleasesSlot(){
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+    when(resources.available(anyLong())).thenReturn(false);
+    try{Thread.currentThread().interrupt();assertThat(client.generate("合成测试建议",true).reason()).isEqualTo("TIMEOUT");assertThat(Thread.currentThread().isInterrupted()).isTrue();}
+    finally{Thread.interrupted();}
+    when(resources.available(anyLong())).thenReturn(true);
+    assertThat(client.generate("合成测试建议",true).status()).isEqualTo("GENERATED");
+  }
   @Test void tooLargeContextIsNotTruncated(){assertThat(client.generate("测".repeat(3000),true).reason()).isEqualTo("RESOURCE_LIMIT");assertThat(hits.get()).isZero();}
   @Test void localNativeRequestHasNoKeysToolsOrPrivateContext(){
     response=response.replace("合成测试建议","synthetic original");

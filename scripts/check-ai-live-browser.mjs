@@ -132,7 +132,7 @@ try {
   check(heldResponse.responseStatusCode === 200, 'real completed response observed before delivery delay');
   const body = await page.send('Fetch.getResponseBody', { requestId: heldResponse.requestId });
   const actualReply = JSON.parse(body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body);
-  check(actualReply.data?.status === 'GENERATED', 'held response is genuinely generated, never substituted');
+  check(actualReply.data?.status === 'GENERATED', `held response genuinely generated (status=${actualReply.data?.status}, reason=${actualReply.data?.reason}), never substituted`);
   acceptedTexts.push({ kind: 'held-real-polish', content: actualReply.data.content });
   await api('POST', `/api/admin/verifications/${account.userId}/revoke`, admin.token, { expectedVersion: qualification.summary.version, reason: 'Synthetic real-response delivery boundary' });
   // Router navigation refreshes actual eligibility; do not claim revocation during model computation.
