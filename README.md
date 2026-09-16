@@ -163,6 +163,12 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 此前失败轮（进程识别、mysqldump参数）均保留，详见E盘24记录；修正后两轮增强演练通过。这里的极小合成恢复不是生产RTO/RPO、时间点恢复或恢复后应用全流程验收；现有开发库仍V1，不能直接启动迁移。
 
+## 本地候选交付包（不部署）
+
+在工作区干净且已提交时执行 `powershell.exe -NoProfile -File scripts/New-LocalRelease.ps1 -CreateCandidate`。工具从该提交导出全新源码快照，在独立`.local/release-build/`重新后端验证、前端`npm ci`及完整验证，不动现有node_modules/target、不启动服务或连接业务库。成功后生成`.local/releases/`候选目录，包含JAR、前端、源码快照、运行说明和逐文件SHA-256清单；失败保留构建日志，不宣布验收通过。
+
+使用 `node scripts/check-release.mjs <候选目录>`只读检查，23项工具测试覆盖篡改、缺失/新增文件、路径穿越、符号链接、错误测试摘要及伪造生产放行标记。另43项开发环境脚本检查通过。完整性清单不是数字签名，不能证明文件和清单同时被改后的可信来源。详见[候选包上线门禁](infra/RELEASE-CHECKLIST.md)；真实校园、HTTPS/代理、性能、实际应用模型联调与最终上线验收仍须独立完成，包构建不等于上线许可。
+
 ## AI 配置
 
 默认 `AI_ENABLED=false`，集成测试配置强制关闭。适配器仅调用本机 Ollama 原生 `/api/chat`；`AI_BASE_URL` 默认 `http://127.0.0.1:11434`，只接受显式端口的回环IP，禁用代理和重定向，无云端回退或API密钥。`AI_MODEL` 默认候选 `qwen3:1.7b`，仅另允许 `qwen3:4b`；这不表示模型已下载或已验证。安装、模型来源/量化确认及效果试跑需另行安排。

@@ -27,7 +27,7 @@ function Get-RedisOption {
 }
 
 try {
-    foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'))) {
+    foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'), (Join-Path $PSScriptRoot 'New-LocalRelease.ps1'))) {
         $tokens = $null
         $parseErrors = $null
         $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors)
@@ -39,6 +39,9 @@ try {
     $rehearsalDenied=$false
     try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') } catch { $rehearsalDenied=$_.Exception.Message -match 'ConfirmIsolatedRehearsal' }
     Assert-Check $rehearsalDenied 'Isolated rehearsal refuses missing consent before filesystem/process changes.'
+    $candidateDenied=$false
+    try { & (Join-Path $PSScriptRoot 'New-LocalRelease.ps1') } catch { $candidateDenied=$_.Exception.Message -match 'CreateCandidate' }
+    Assert-Check $candidateDenied 'Candidate builder refuses missing consent before filesystem/build actions.'
 
     $docker = (Get-Command docker.exe -CommandType Application -ErrorAction Stop).Source
     $json = & $docker --context desktop-linux compose --project-name campus-lost-found-local --file $composeFile --profile integration config --format json
