@@ -37,6 +37,8 @@ class HttpLoadBenchmarkTest {
   private final List<String> tokens=new ArrayList<>(), failures=new ArrayList<>();
   private final AtomicLong minimumFree=new AtomicLong(Long.MAX_VALUE);
   private final boolean richData=Boolean.parseBoolean(System.getenv("RUN_HTTP_RICH_DATA"));
+  private final boolean packaged=System.getenv("HTTP_CANDIDATE_JAR")!=null && !System.getenv("HTTP_CANDIDATE_JAR").isBlank();
+  private final Queue<Map<String,Object>> resourceSamples=new ConcurrentLinkedQueue<>();
   private String origin;
   private int port;
 
@@ -49,7 +51,11 @@ class HttpLoadBenchmarkTest {
     String startedAt=Instant.now().toString();
     var os=(OperatingSystemMXBean)ManagementFactory.getOperatingSystemMXBean();
     var sampler=Executors.newSingleThreadScheduledExecutor();
-    sampler.scheduleAtFixedRate(()->minimumFree.accumulateAndGet(os.getFreeMemorySize(),Math::min),0,250,TimeUnit.MILLISECONDS);
+    sampler.scheduleAtFixedRate(()->{
+      long free=os.getFreeMemorySize();minimumFree.accumulateAndGet(free,Math::min);
+      resourceSamples.add(Map.of("at",Instant.now().toString(),"hostFreeBytes",free,
+          "clientHeapUsedBytes",Runtime.getRuntime().totalMemory()-Runtime.getRuntime().freeMemory()));
+    },0,250,TimeUnit.MILLISECONDS);
     boolean completed=false, sessionsRemoved=false;
     try (var client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
         .followRedirects(HttpClient.Redirect.NEVER).version(HttpClient.Version.HTTP_1_1).build()) {
@@ -64,12 +70,9 @@ class HttpLoadBenchmarkTest {
       String loginPassword=UUID.randomUUID().toString(); seed(jdbc,source,loginPassword);
       if(richData) seedRelations(jdbc);
       var config=configuration(url,password,directory);
-      var app=new SpringApplication(LostFoundApplication.class); app.setWebApplicationType(WebApplicationType.SERVLET);
-      app.addInitializers(c->{c.getEnvironment().setActiveProfiles("httpbenchmark");
-        c.getEnvironment().getPropertySources().addFirst(new MapPropertySource("owned-http-rehearsal",config));});
-      try(var context=app.run()) {
-        port=((WebServerApplicationContext)context).getWebServer().getPort(); origin="http://127.0.0.1:"+port;
-        var redis=context.getBean(StringRedisTemplate.class);
+      try(var target=openTarget(config,directory)) {
+        port=target.port(); origin="http://127.0.0.1:"+port;
+        var redis=target.redis();
         boolean leaseOwned=false;
         try {
           // No flush. Refuse any pre-existing DB15 usage, including previous unexpired counters.
@@ -97,6 +100,8 @@ class HttpLoadBenchmarkTest {
           runPhase(client,"public-maximum",50,1,"",publicIds);
           runPhase(client,"public-deep",10,701,"",publicIds);
           runPhase(client,"keyword-type-category",10,1,"&keyword=synthetic&type=FOUND&category=digital",filteredIds);
+          if(packaged){target.assertAlive();runPhase(client,"public-maximum-sustained",50,1,"",publicIds,180);}
+          target.assertAlive();
           assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM items",Long.class)).isEqualTo(10000);
           assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM claims",Long.class)).isEqualTo(richData?8000L:0L);
           assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM item_images",Long.class)).isEqualTo(richData?15000L:0L);
@@ -132,11 +137,19 @@ class HttpLoadBenchmarkTest {
       result.put("itemCount",10000);result.put("approvedCount",8000);result.put("users",20);result.put("concurrency",20);
       result.put("phaseSeconds",SECONDS);result.put("connectionPoolMaximum",3);result.put("httpPort",port);result.put("redisDatabase",15);
       result.put("heapMaxBytes",Runtime.getRuntime().maxMemory());result.put("minimumFreeBytes",minimumFree.get());
+      result.put("resourceSamples",resourceSamples);
+      result.put("targetMode",packaged?"packaged-child-jvm":"in-process");
+      if(packaged){
+        result.put("candidateRevision",System.getenv("HTTP_CANDIDATE_REVISION"));
+        result.put("candidateSha256",System.getenv("HTTP_CANDIDATE_SHA256"));
+        result.put("serverHeapMaxBytes",384L*1024*1024);result.put("sustainedPhaseSeconds",180);
+      }
       result.put("ownedSessionsRemoved",sessionsRemoved);result.put("aiEnabled",false);
       result.put("dataset",richData?"relations-v1":"baseline-v1");
       result.put("imageMetadataCount",richData?15000:0);result.put("claimCount",richData?8000:0);
       result.put("os",System.getProperty("os.name"));result.put("javaVersion",System.getProperty("java.version"));result.put("processors",os.getAvailableProcessors());
-      result.put("limitations",List.of("Real loopback HTTP/auth/Redis/JSON/JPA, but client and server share test JVM; not packaged candidate or production network",
+      result.put("limitations",List.of(packaged?"Verified frozen JAR and client in separate JVMs on one host; loopback only, not production network"
+              :"Real loopback HTTP/auth/Redis/JSON/JPA, but client and server share test JVM; not packaged candidate or production network",
           "Closed-loop 20 workers, one request in flight each; not a fixed arrival-rate or soak test; no coordinated-omission correction",
           "Success percentiles include body parsing/semantic assertions; error rate includes failed requests; no retries",
           "Seeded/warmed MySQL buffer cache, no OS cache flush; paginated endpoint has no application result cache",
@@ -149,10 +162,14 @@ class HttpLoadBenchmarkTest {
   }
 
   private void runPhase(HttpClient client,String name,int size,int firstPage,String filter,List<Integer> ids) throws Exception {
+    runPhase(client,name,size,firstPage,filter,ids,SECONDS);
+  }
+  private void runPhase(HttpClient client,String name,int size,int firstPage,String filter,List<Integer> ids,int seconds) throws Exception {
     // Twenty sequential warmup calls per scenario, excluded from measured statistics.
     for(int i=0;i<WORKERS;i++) assertPage(client,tokens.get(i),size,firstPage+i%10,filter,ids);
     var successful=new ConcurrentLinkedQueue<Long>();var all=new ConcurrentLinkedQueue<Long>();
     var errors=new ConcurrentLinkedQueue<String>();var ready=new CountDownLatch(WORKERS);var start=new CountDownLatch(1);
+    var slow=new ConcurrentLinkedQueue<Map<String,Object>>();var slowCount=new AtomicInteger();
     var deadline=new AtomicLong(); var pool=Executors.newFixedThreadPool(WORKERS);var jobs=new ArrayList<Future<?>>();
     long started=0;String at=Instant.now().toString();
     try {
@@ -164,12 +181,16 @@ class HttpLoadBenchmarkTest {
             long requestStart=System.nanoTime();boolean ok=false;
             try {assertPage(client,tokens.get(worker),size,firstPage+(worker+n)%10,filter,ids);ok=true;}
             catch(Exception|AssertionError error) {if(errors.size()<100)errors.add(error.getClass().getSimpleName());}
-            finally {long elapsed=(System.nanoTime()-requestStart)/1000;all.add(elapsed);if(ok)successful.add(elapsed);}
+            finally {
+              long elapsed=(System.nanoTime()-requestStart)/1000;all.add(elapsed);if(ok)successful.add(elapsed);
+              if(elapsed>800_000 && slowCount.getAndIncrement()<200)
+                slow.add(Map.of("endedAt",Instant.now().toString(),"elapsedMicros",elapsed,"worker",worker,"success",ok));
+            }
           }
         }));
       }
       assertThat(ready.await(5,TimeUnit.SECONDS)).isTrue();started=System.nanoTime();at=Instant.now().toString();
-      deadline.set(started+TimeUnit.SECONDS.toNanos(SECONDS));start.countDown();
+      deadline.set(started+TimeUnit.SECONDS.toNanos(seconds));start.countDown();
       // One shared join deadline, not 20 independent long waits.
       long joinDeadline=deadline.get()+TimeUnit.SECONDS.toNanos(15);
       for(var job:jobs)job.get(Math.max(1,joinDeadline-System.nanoTime()),TimeUnit.NANOSECONDS);
@@ -179,7 +200,8 @@ class HttpLoadBenchmarkTest {
       long wall=started==0?1:System.nanoTime()-started;
       var phase=new LinkedHashMap<>(BenchmarkMetrics.summarize(new ArrayList<>(successful),all.size(),wall));
       phase.put("name",name);phase.put("startedAt",at);phase.put("endedAt",Instant.now().toString());
-      phase.put("wallMs",wall/1_000_000);phase.put("scheduledLoadSeconds",SECONDS);phase.put("pageSize",size);phase.put("firstPage",firstPage);
+      phase.put("wallMs",wall/1_000_000);phase.put("scheduledLoadSeconds",seconds);phase.put("pageSize",size);phase.put("firstPage",firstPage);
+      phase.put("over800ms",slowCount.get());phase.put("slowRequestsFirst200",slow);
       phase.put("errorKindsFirst100",new ArrayList<>(errors));phase.put("allAttemptLatency",BenchmarkMetrics.summarize(new ArrayList<>(all),all.size(),wall));
       phases.add(phase);
       if(!Boolean.TRUE.equals(phase.get("passed")))failures.add(name+": nonzero errors or P95 above 800ms or no samples");
@@ -244,6 +266,29 @@ class HttpLoadBenchmarkTest {
     c.put("app.campus.test-mode",true);c.put("app.campus.campus-id","TEST_CAMPUS");c.put("app.admin-password","");
     c.put("app.media.root",directory.resolve("http-media").toString());c.put("app.media.cleanup-enabled",false);c.put("ai.enabled",false);
     return c;
+  }
+
+  private interface Target extends AutoCloseable {
+    int port();StringRedisTemplate redis();void assertAlive();
+    @Override void close() throws Exception;
+  }
+  private Target openTarget(Map<String,Object> config,Path directory) throws Exception {
+    if(packaged){
+      var owned=PackagedBenchmarkTarget.start(config,directory);
+      return new Target(){
+        public int port(){return owned.port();}public StringRedisTemplate redis(){return owned.redis();}
+        public void assertAlive(){owned.assertAlive();}public void close() throws Exception{owned.close();}
+      };
+    }
+    var app=new SpringApplication(LostFoundApplication.class);app.setWebApplicationType(WebApplicationType.SERVLET);
+    app.addInitializers(c->{c.getEnvironment().setActiveProfiles("httpbenchmark");
+      c.getEnvironment().getPropertySources().addFirst(new MapPropertySource("owned-http-rehearsal",config));});
+    var context=app.run();
+    return new Target(){
+      public int port(){return ((WebServerApplicationContext)context).getWebServer().getPort();}
+      public StringRedisTemplate redis(){return context.getBean(StringRedisTemplate.class);}
+      public void assertAlive(){assertThat(context.isActive()).isTrue();}public void close(){context.close();}
+    };
   }
 
   private static String category(int id){return CATEGORIES[(id/2)%CATEGORIES.length];}

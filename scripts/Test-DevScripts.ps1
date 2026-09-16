@@ -42,6 +42,9 @@ try {
     $richDenied=$false
     try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') -ConfirmIsolatedRehearsal -IncludeRichHttpData } catch { $richDenied=$_.Exception.Message -match 'Rich HTTP data requires' }
     Assert-Check $richDenied 'Rich data refuses missing HTTP mode before filesystem/process changes.'
+    $packagedDenied=$false
+    try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') -ConfirmIsolatedRehearsal -CandidateDirectory 'not-used' } catch { $packagedDenied=$_.Exception.Message -match 'Candidate directory requires' }
+    Assert-Check $packagedDenied 'Packaged candidate requires HTTP mode before resolving or creating paths.'
     foreach($modelArgs in @(@{ConfirmIsolatedRehearsal=$true;IncludeLocalModel=$true},@{ConfirmIsolatedRehearsal=$true;IncludeLocalModel=$true;ConfirmLocalModel=$true})){
         $modelDenied=$false
         try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') @modelArgs } catch { $modelDenied=$_.Exception.Message -match 'Local model benchmark additionally requires' }

@@ -1,15 +1,28 @@
 #requires -Version 5.1
 <# Disposable rehearsal instance only. No Windows service changes or existing database connections. #>
 [CmdletBinding()]
-param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark,[switch]$IncludeRichHttpData)
+param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark,[switch]$IncludeRichHttpData,[string]$CandidateDirectory='')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if (-not $ConfirmIsolatedRehearsal) { throw 'Explicit -ConfirmIsolatedRehearsal required before creating any files or processes.' }
+if($CandidateDirectory -and -not $IncludeHttpBenchmark){throw 'Candidate directory requires -IncludeHttpBenchmark.'}
 if($IncludeRichHttpData -and -not $IncludeHttpBenchmark){throw 'Rich HTTP data requires -IncludeHttpBenchmark.'}
 if($IncludeLocalModel -and (-not $IncludeServiceBenchmark -or -not $ConfirmLocalModel)){throw 'Local model benchmark additionally requires -IncludeServiceBenchmark -ConfirmLocalModel.'}
 if($IncludeHttpBenchmark -and ($IncludeServiceBenchmark -or $IncludeLocalModel -or $IncludeDatabaseOutage)){throw 'HTTP benchmark must run alone with AI disabled; do not combine benchmark modes.'}
 if(@(Get-ChildItem Env: | Where-Object {$_.Name -like 'SPRING_*' -or $_.Name -in @('JAVA_TOOL_OPTIONS','JDK_JAVA_OPTIONS','_JAVA_OPTIONS')}).Count){throw 'Remove inherited Spring/JVM overrides before isolated rehearsal; no values are printed.'}
 $projectRoot=Split-Path -Parent $PSScriptRoot
+$candidateJar='';$candidateHash='';$candidateRevision=''
+if($CandidateDirectory){
+    $candidateRoot=(Resolve-Path -LiteralPath $CandidateDirectory).Path
+    $releaseRoot=[IO.Path]::GetFullPath((Join-Path $projectRoot '.local\releases'))+'\'
+    if(-not $candidateRoot.StartsWith($releaseRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'Candidate must be under this project local releases directory.'}
+    & node.exe (Join-Path $projectRoot 'scripts\check-release.mjs') $candidateRoot
+    if($LASTEXITCODE -ne 0){throw 'Candidate manifest/inventory validation failed.'}
+    $candidateManifest=Get-Content -LiteralPath (Join-Path $candidateRoot 'manifest.json') -Raw | ConvertFrom-Json
+    $candidateJar=Join-Path $candidateRoot 'backend\app.jar'
+    $candidateHash=(Get-FileHash -LiteralPath $candidateJar -Algorithm SHA256).Hash.ToLowerInvariant()
+    $candidateRevision=$candidateManifest.revision
+}
 $mysqlRoot='E:\MySQL\MySQL Server 8.0'
 $serverExe=Join-Path $mysqlRoot 'bin\mysqld.exe'
 $clientExe=Join-Path $mysqlRoot 'bin\mysql.exe'
@@ -109,6 +122,7 @@ try {
         RUN_DB_OUTAGE_REHEARSAL=([string][bool]$IncludeDatabaseOutage).ToLowerInvariant()
         RUN_HTTP_BENCHMARK=([string][bool]$IncludeHttpBenchmark).ToLowerInvariant()
         RUN_HTTP_RICH_DATA=([string][bool]$IncludeRichHttpData).ToLowerInvariant()
+        HTTP_CANDIDATE_JAR=$candidateJar; HTTP_CANDIDATE_SHA256=$candidateHash; HTTP_CANDIDATE_REVISION=$candidateRevision
     }
     foreach($name in $variables.Keys){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$variables[$name],'Process')}
     Push-Location -LiteralPath $projectRoot
@@ -126,6 +140,15 @@ try {
     Write-Output 'PASS: all selected isolated checks. No existing MySQL database was connected or altered; HTTP mode uses only test Redis DB15.'
 } catch {$failure=$_.Exception.Message; throw}
 finally {
+    # Also recover an exact owned packaged child if its Java test driver failed abruptly.
+    $ownedJar=Join-Path $runRoot 'candidate.jar'
+    foreach($child in @(Get-CimInstance Win32_Process -Filter "Name='java.exe'" | Where-Object {
+        $_.ExecutablePath -eq (Join-Path $javaRoot 'bin\java.exe') -and $_.CommandLine.Contains($ownedJar)
+    })){
+        Stop-Process -Id $child.ProcessId
+        if(-not $failure){$failure='Packaged child outlived its driver; exact owned process stopped.'}
+        $forcedStop=$true
+    }
     foreach($name in $saved.Keys){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}
     if($null -ne $ownedServer){
         $ownedProcesses=@(Get-CimInstance Win32_Process -Filter "Name='mysqld.exe'" | Where-Object {
