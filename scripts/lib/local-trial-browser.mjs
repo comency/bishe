@@ -57,8 +57,8 @@ export async function openTrialBrowser(origin) {
       }
       if (message.method === 'Network.loadingFinished') requestPaths.delete(message.params.requestId);
       if (message.method === 'Network.responseReceived') {
-        const { url, status } = message.params.response;
-        if (url.startsWith(origin + '/api/')) responses.push({ path: new URL(url).pathname, status });
+        const { url, status, mimeType } = message.params.response;
+        if (url.startsWith(origin + '/api/') || url.startsWith(origin + '/assets/')) responses.push({ path: new URL(url).pathname, status, mimeType });
       }
     });
     async function evaluate(expression) {
@@ -66,8 +66,15 @@ export async function openTrialBrowser(origin) {
       if (result.exceptionDetails) throw new Error('Browser evaluation failed; private expression details withheld');
       return result.result.value;
     }
-    async function until(expression, label) {
-      for (let i = 0; i < 350; i++) { if (await evaluate(expression)) return; await delay(100); }
+    async function until(expression, label, failureExpression) {
+      for (let i = 0; i < 350; i++) {
+        if (await evaluate(expression)) return;
+        if (failureExpression) {
+          const failure = await evaluate(failureExpression);
+          if (failure) throw new Error(`Browser terminal failure: ${label}: ${String(failure).slice(0, 500)}`);
+        }
+        await delay(100);
+      }
       throw new Error(`Browser state not reached: ${label}`);
     }
     async function check(expression, label) {

@@ -6,10 +6,10 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 if (process.argv[2] === '--help') {
-  console.log('Start the explicit integration,modeltrial API on 127.0.0.1:18081 and verified Ollama on :11434. TEST_ADMIN_PASSWORD required. node scripts/check-ai-live-api.mjs --confirm-local-model-trial --confirm-test-environment. Creates synthetic accounts; no deletion or production enabling.');
+  console.log('Start the explicit integration,modeltrial API on 127.0.0.1:18081 and verified Ollama on :11434. TEST_ADMIN_PASSWORD required. node scripts/check-ai-live-api.mjs --confirm-local-model-trial --confirm-test-environment [--business-overlap-only]. Optional mode only compares 10 baseline and 10 overlapping read requests with one real generation; not full functional or load acceptance. Creates synthetic accounts; no deletion or production enabling.');
   process.exit(0);
 }
-if (process.argv.length !== 4 || process.argv[2] !== '--confirm-local-model-trial' ||
+if (![4, 5].includes(process.argv.length) || (process.argv.length === 5 && process.argv[4] !== '--business-overlap-only') || process.argv[2] !== '--confirm-local-model-trial' ||
     process.argv[3] !== '--confirm-test-environment' || !process.env.TEST_ADMIN_PASSWORD) {
   throw new Error('Both explicit confirmations and dedicated TEST_ADMIN_PASSWORD are required before network access.');
 }
@@ -18,6 +18,8 @@ const policy = JSON.parse(await readFile('src/main/resources/ai-content-policy.j
 const output = resolve('.local/ai-http-trial', new Date().toISOString().replace(/[:.]/g, '-'));
 await mkdir(output, { recursive: true });
 const checks = [], responses = [], generations = [], sessions = [], userIds = [];
+const overlapOnly = process.argv[4] === '--business-overlap-only';
+const overlapEvidence = [];
 let stage = 'preflight', failure, ownModelTrial = false;
 function check(condition, label) { assert.ok(condition, label); checks.push(label); }
 async function providerApi(path, body) {
@@ -28,10 +30,11 @@ async function providerApi(path, body) {
 }
 async function api(method, path, token, body, expected = 200, errorCode) {
   const started = performance.now();
+  const freeBeforeMiB = Math.round(freemem() / 1024 ** 2);
   const response = await fetch(base + path, { method, redirect: 'error', signal: AbortSignal.timeout(30000),
     headers: { ...(token ? { 'X-Token': token } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined });
-  const observation = { method, path, status: response.status, elapsedMs: Math.round(performance.now() - started) };
+  const observation = { method, path, status: response.status, elapsedMs: Math.round(performance.now() - started), freeBeforeMiB, freeAfterMiB: Math.round(freemem() / 1024 ** 2) };
   responses.push(observation);
   check(response.status === expected, `${method} ${path}: expected ${expected}, got ${response.status}`);
   check(response.headers.get('cache-control')?.includes('no-store'), `${path}: no-store`);
@@ -84,6 +87,42 @@ try {
   await api('POST', '/api/ai/chat', null, { question: '如何认领？' }, 401, 'AUTH_REQUIRED');
   const first = await syntheticAccount(admin, 'a');
   await api('GET', '/api/admin/ai-trial', first.token, undefined, 403, 'FORBIDDEN');
+  if (overlapOnly) {
+    stage = 'bounded business HTTP overlap diagnostic';
+    async function readWave(label, isModelPending = () => false) {
+      return Promise.all(Array.from({ length: 10 }, async (_, index) => {
+        const start = performance.now(), startedDuringModel = isModelPending();
+        // Read-only business APIs; never publish, migrate, reset data or bypass eligibility.
+        const path = index % 2 ? '/api/items/mine/page' : '/api/items/page?pageSize=10';
+        await api('GET', path, first.token);
+        const result = { label, path, elapsedMs: Math.round(performance.now() - start), startedDuringModel, finishedDuringModel: isModelPending() };
+        overlapEvidence.push(result); return result;
+      }));
+    }
+    await readWave('baseline');
+    check(freemem() >= 4 * 1024 ** 3, '4 GiB free before overlap generation');
+    let settled = false;
+    // Attach both handlers immediately so diagnostic failures cannot leave an unhandled rejection.
+    const generation = api('POST', '/api/ai/chat', first.token, { question: '认领被接受后，双方应该如何确认归还？' })
+      .then(result => ({ result }), error => ({ error })).finally(() => { settled = true; });
+    try {
+      const deadline = performance.now() + 5000;
+      let loaded = false;
+      while (!settled && performance.now() < deadline) {
+        loaded = (await providerApi('/api/ps')).models.some(item => item.name === model);
+        if (loaded) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      check(loaded && !settled, 'provider reports loaded model while application generation request remains pending');
+      const reads = await readWave('model-request-pending', () => !settled);
+      check(reads.every(item => item.startedDuringModel && item.finishedDuringModel), 'all ten business HTTP reads fully overlap pending model request');
+    } finally {
+      const outcome = await generation;
+      if (outcome.error) throw outcome.error;
+      offered(outcome.result, 'overlap actual generation', 4);
+    }
+    check((await api('GET', '/api/items/mine/page', first.token)).total === 0, 'overlap diagnostic does not create items');
+  } else {
   const original = '图书馆 捡到蓝色水杯，杯底有划痕';
   const quotaStarted = performance.now();
   const polished = await api('POST', '/api/ai/polish', first.token, { content: original });
@@ -116,6 +155,7 @@ try {
   await api('POST', '/api/ai/chat', first.token, { question: '旧会话再次提问' }, 403, 'VERIFICATION_REQUIRED');
   check((await api('GET', '/api/items/mine/page', second.token)).total === 0, 'qualified manual business still accessible');
   check((await providerApi('/api/ps')).models.length === 0, 'models unloaded after HTTP calls');
+  }
 } catch (error) {
   failure = `${stage}: ${error.message}`;
   console.error(failure);
@@ -131,6 +171,7 @@ try {
   await writeFile(resolve(output, 'result.json'), JSON.stringify({ at: new Date().toISOString(), checks, responses, generations,
     syntheticUserIds: userIds, failure: failure ?? null, actualHttpResponses: responses.length,
     actualGeneratedResults: generations.length, completed: !failure, contentPolicyVersion: policy.version,
+    mode: overlapOnly ? 'bounded-business-overlap' : 'full-functional', overlapEvidence,
     limitations: ['No browser in this script', 'Revocation before a later request; in-flight revocation covered separately', 'No production or mall parallel-load claim'] }, null, 2));
   console.log(`${failure ? 'FAIL' : 'PASS'} ${checks.length} live AI HTTP checks. Evidence: ${output}. Synthetic records retained; own sessions logged out.`);
 }

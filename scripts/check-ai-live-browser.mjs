@@ -76,13 +76,13 @@ try {
   page = await openTrialBrowser(origin);
   await page.navigate('/login'); await page.until("!!document.querySelector('#login-password')", 'login form');
   await page.fill('#login-username', credentials.username); await page.fill('#login-password', credentials.password);
-  await page.click('.auth-form button[type=submit]'); await page.until("location.pathname==='/items'", 'verified login');
+  await page.click('.auth-form button[type=submit]'); await page.until("location.pathname==='/items'", 'verified login', "document.querySelector('.auth-form .error-message')?.innerText");
 
   stage = 'real model guidance';
   await page.navigate('/assistant'); await page.until("!!document.querySelector('.assistant-page textarea')", 'assistant form');
   await page.fill('.assistant-page textarea', '我只想认领别人捡到的钥匙，也得先发一个启事吗？');
   await waitBeforeGeneration('guidance'); await page.click('.assistant-page button[type=submit]');
-  await page.until("!!document.querySelector('.assistant-page .item-full-description')", 'actual model reply');
+  await page.until("!!document.querySelector('.assistant-page .item-full-description')", 'actual model reply', "document.querySelector('.assistant-page .error-message')?.innerText");
   const guidance = await page.evaluate("document.querySelector('.assistant-page .item-full-description').innerText");
   check(guidance === policy.guideStatements[2], 'actual relevant guide selection displayed'); acceptedTexts.push({ kind: 'chat', content: guidance });
   await browserCheck("document.body.innerText.includes('模型选取、系统校验后展示') && document.body.innerText.includes('静态使用说明')", 'model selection distinguished from static help');
@@ -95,7 +95,7 @@ try {
   const original = '图书馆 捡到蓝色水杯，杯底有划痕';
   await page.fill('.item-form textarea', original);
   await waitBeforeGeneration('preview'); await page.click('.ai-panel button');
-  await page.until("!!document.querySelector('.ai-preview')", 'real polish suggestion');
+  await page.until("!!document.querySelector('.ai-preview')", 'real polish suggestion', "document.querySelector('.ai-panel .environment-notice, .ai-panel .error-message')?.innerText");
   const polished = await page.evaluate("document.querySelector('.ai-preview').innerText");
   check(polished.replace(/[，。\s]/g, '') === original.replace(/[，。\s]/g, ''), 'real polish retains facts and order'); acceptedTexts.push({ kind: 'polish', content: polished });
   await browserCheck(`document.querySelector('.item-form textarea').value===${JSON.stringify(original)}`, 'preview never automatically changes input');
