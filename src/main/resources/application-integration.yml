@@ -18,6 +18,8 @@ spring:
       username: ${TEST_REDIS_USERNAME:}
       password: ${TEST_REDIS_PASSWORD:}
 app:
+  web:
+    allowed-origins: http://127.0.0.1:15174,http://localhost:15174
   media:
     root: ${TEST_MEDIA_ROOT:.local/media-test}
   admin-password: ${TEST_ADMIN_PASSWORD:}

@@ -169,6 +169,14 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 使用 `node scripts/check-release.mjs <候选目录>`只读检查，23项工具测试覆盖篡改、缺失/新增文件、路径穿越、符号链接、错误测试摘要及伪造生产放行标记。另43项开发环境脚本检查通过。完整性清单不是数字签名，不能证明文件和清单同时被改后的可信来源。详见[候选包上线门禁](infra/RELEASE-CHECKLIST.md)；真实校园、HTTPS/代理、性能、实际应用模型联调与最终上线验收仍须独立完成，包构建不等于上线许可。
 
+## 跨域访问边界
+
+不再使用通配来源：开发仅允许127.0.0.1/localhost的5174，integration仅15174，modeltrial仅15176；商城15175及其他来源被拒绝。请求只开放业务所需方法和Content-Type/X-Token/Accept，不共享Cookie凭据。CORS允许源仍须通过原有登录、角色、资格和对象权限检查。
+
+正式同源/代理环境须显式配置`CORS_ALLOWED_ORIGINS`为真实HTTPS origin（不含路径、查询、凭据或通配符）；空值只允许同源请求。明文HTTP仅允许带明确端口的上述回环主机；integration/modeltrial使用各自固定值。生产HTTPS/可信代理仍须落实，不因本地允许源通过而视为上线完成。
+
+21项CORS策略/MVC测试、1项环境映射和新增试验守卫通过；真实18081 HTTP13项以及15176浏览器Redis故障22项通过，未产生账号或模型调用。复现：`node scripts/check-cors-api.mjs --confirm-local-trial`，需显式试验后端；CORS错误是框架在业务鉴权前的403，不按业务JSON包络解释。
+
 ## AI 配置
 
 默认 `AI_ENABLED=false`，集成测试配置强制关闭。适配器仅调用本机 Ollama 原生 `/api/chat`；`AI_BASE_URL` 默认 `http://127.0.0.1:11434`，只接受显式端口的回环IP，禁用代理和重定向，无云端回退或API密钥。`AI_MODEL` 默认候选 `qwen3:1.7b`，仅另允许 `qwen3:4b`；这不表示模型已下载或已验证。安装、模型来源/量化确认及效果试跑需另行安排。

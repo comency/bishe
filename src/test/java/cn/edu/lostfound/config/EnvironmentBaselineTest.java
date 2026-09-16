@@ -65,4 +65,12 @@ class EnvironmentBaselineTest {
     assertThat(resolve(values, "app.admin-password")).isEmpty();
     assertThat(resolve(config("application-integration.yml"), "ai.enabled")).isEqualTo("false");
   }
+  @Test void environmentOriginsAreExactAndDoNotIncludeMallPorts() {
+    assertThat(resolve(config("application.yml"),"app.web.allowed-origins"))
+        .isEqualTo("http://127.0.0.1:5174,http://localhost:5174");
+    assertThat(resolve(config("application-integration.yml"),"app.web.allowed-origins"))
+        .isEqualTo("http://127.0.0.1:15174,http://localhost:15174");
+    assertThat(resolve(config("application-modeltrial.yml"),"app.web.allowed-origins"))
+        .isEqualTo("http://127.0.0.1:15176,http://localhost:15176");
+  }
 }

@@ -14,6 +14,7 @@ class AiTrialConfigurationTest {
         .withInitializer(context->context.getEnvironment().setActiveProfiles(profiles))
         .withPropertyValues("app.ai-trial.confirmed=true","app.campus.test-mode=true","app.campus.campus-id=TEST_CAMPUS",
             "server.address=127.0.0.1","server.port=18081",
+            "app.web.allowed-origins=http://127.0.0.1:15176,http://localhost:15176",
             "spring.datasource.url=jdbc:mysql://127.0.0.1:13306/lost_found_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai",
             "spring.datasource.username=lost_found_test_app","spring.data.redis.host=127.0.0.1",
             "spring.data.redis.port=16380","spring.data.redis.database=0","spring.flyway.enabled=false",
@@ -40,6 +41,7 @@ class AiTrialConfigurationTest {
       "ai.enabled=false","ai.base-url=http://127.0.0.1:11435","ai.model=qwen3:4b","ai.timeout-ms=90000",
       "ai.context-tokens=8192","ai.output-tokens=1024","ai.minimum-free-bytes=1","app.media.cleanup-enabled=true",
       "spring.sql.init.mode=always","spring.jpa.generate-ddl=true","app.media.root=.local/media-dev",
+      "app.web.allowed-origins=*",
       "spring.datasource.hikari.jdbc-url=jdbc:mysql://127.0.0.1:3306/other",
       "spring.datasource.hikari.jdbcUrl=jdbc:mysql://127.0.0.1:3306/other",
       "spring.datasource.hikari.username=other","spring.datasource.hikari.connection-init-sql=SELECT 1",

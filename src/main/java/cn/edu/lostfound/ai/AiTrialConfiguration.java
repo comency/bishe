@@ -19,6 +19,7 @@ public class AiTrialConfiguration {
           Map.entry("app.ai-trial.confirmed","true"), Map.entry("app.campus.test-mode","true"),
           Map.entry("app.campus.campus-id","TEST_CAMPUS"),
           Map.entry("server.address","127.0.0.1"), Map.entry("server.port","18081"),
+          Map.entry("app.web.allowed-origins","http://127.0.0.1:15176,http://localhost:15176"),
           Map.entry("spring.datasource.url","jdbc:mysql://127.0.0.1:13306/lost_found_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai"),
           Map.entry("spring.datasource.username","lost_found_test_app"),
           Map.entry("spring.data.redis.host","127.0.0.1"), Map.entry("spring.data.redis.port","16380"),
