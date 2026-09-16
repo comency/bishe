@@ -45,6 +45,13 @@ try {
         Assert-Check $modelDenied 'Model benchmark refuses incomplete explicit flags before filesystem/process changes.'
     }
     $candidateDenied=$false
+    foreach($conflict in @('IncludeServiceBenchmark','IncludeLocalModel','IncludeDatabaseOutage')){
+        $httpArgs=@{ConfirmIsolatedRehearsal=$true;IncludeHttpBenchmark=$true;ConfirmLocalModel=$true}
+        $httpArgs[$conflict]=$true
+        $httpDenied=$false
+        try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') @httpArgs } catch { $httpDenied=$_.Exception.Message -match 'HTTP benchmark must run alone|Local model benchmark additionally requires' }
+        Assert-Check $httpDenied 'HTTP benchmark rejects mixed modes before filesystem/process changes.'
+    }
     try { & (Join-Path $PSScriptRoot 'New-LocalRelease.ps1') } catch { $candidateDenied=$_.Exception.Message -match 'CreateCandidate' }
     Assert-Check $candidateDenied 'Candidate builder refuses missing consent before filesystem/build actions.'
     foreach($overrideName in @('SPRING_DATASOURCE_URL','JAVA_TOOL_OPTIONS')){

@@ -1,11 +1,12 @@
 #requires -Version 5.1
 <# Disposable rehearsal instance only. No Windows service changes or existing database connections. #>
 [CmdletBinding()]
-param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage)
+param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if (-not $ConfirmIsolatedRehearsal) { throw 'Explicit -ConfirmIsolatedRehearsal required before creating any files or processes.' }
 if($IncludeLocalModel -and (-not $IncludeServiceBenchmark -or -not $ConfirmLocalModel)){throw 'Local model benchmark additionally requires -IncludeServiceBenchmark -ConfirmLocalModel.'}
+if($IncludeHttpBenchmark -and ($IncludeServiceBenchmark -or $IncludeLocalModel -or $IncludeDatabaseOutage)){throw 'HTTP benchmark must run alone with AI disabled; do not combine benchmark modes.'}
 if(@(Get-ChildItem Env: | Where-Object {$_.Name -like 'SPRING_*' -or $_.Name -in @('JAVA_TOOL_OPTIONS','JDK_JAVA_OPTIONS','_JAVA_OPTIONS')}).Count){throw 'Remove inherited Spring/JVM overrides before isolated rehearsal; no values are printed.'}
 $projectRoot=Split-Path -Parent $PSScriptRoot
 $mysqlRoot='E:\MySQL\MySQL Server 8.0'
@@ -16,6 +17,14 @@ if (-not (Test-Path -LiteralPath $serverExe) -or -not (Test-Path -LiteralPath $c
 if ((Get-Item -LiteralPath $serverExe).VersionInfo.FileVersion -ne '8.0.41.0') { throw 'Rehearsal currently verified only with the existing MySQL 8.0.41 binary.' }
 if (@(Get-NetTCPConnection -LocalPort 13307 -State Listen -ErrorAction SilentlyContinue).Count) { throw 'Dedicated port 13307 occupied. No service will be stopped.' }
 if ((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory*1KB -lt 4GB) { throw 'At least 4 GiB free required for bounded isolated rehearsal.' }
+if($IncludeHttpBenchmark){
+    $redisInfo=docker inspect campus-lost-found-local-redis-test-1 | ConvertFrom-Json
+    if($LASTEXITCODE -ne 0 -or $redisInfo.Config.Labels.'com.docker.compose.project' -ne 'campus-lost-found-local' -or $redisInfo.State.Health.Status -ne 'healthy'){throw 'Owned healthy test Redis required; no container will be started or stopped.'}
+    $binding=$redisInfo.NetworkSettings.Ports.'6379/tcp'
+    if(@($binding).Count -ne 1 -or $binding[0].HostIp -ne '127.0.0.1' -or $binding[0].HostPort -ne '16380'){throw 'Unexpected test Redis port mapping.'}
+    $dbSize=docker exec campus-lost-found-local-redis-test-1 redis-cli -n 15 DBSIZE
+    if($LASTEXITCODE -ne 0 -or "$dbSize".Trim() -ne '0'){throw 'Redis database 15 must be empty; never flush it. Wait for owned expired counters or inspect ownership.'}
+}
 $tag=(Get-Date -Format 'yyyyMMddHHmmss')+'_'+[Guid]::NewGuid().ToString('N').Substring(0,8)
 $runRoot=Join-Path $projectRoot ('.local\database-rehearsal\'+$tag)
 [void](New-Item -ItemType Directory -Path $runRoot)
@@ -85,7 +94,7 @@ try {
     $prefix='rehearsal_'+$tag+'_'
     $runnerPassword=New-Secret
     [void](Run-Sql "CREATE USER 'rehearsal_runner'@'localhost' IDENTIFIED BY '$runnerPassword';" $rootPassword)
-    foreach($suffix in @('empty','legacy','closed','checksum','unmanaged','source','restored','benchmark','outage')){
+    foreach($suffix in @('empty','legacy','closed','checksum','unmanaged','source','restored','benchmark','outage','httpbenchmark')){
         $schema=$prefix+$suffix
         $grant=$schema.Replace('_','\_')
         [void](Run-Sql ('CREATE DATABASE `'+$schema+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES ON `'+$grant+'`.* TO ''rehearsal_runner''@''localhost'';') $rootPassword)
@@ -97,6 +106,7 @@ try {
         RUN_SERVICE_BENCHMARK=([string][bool]$IncludeServiceBenchmark).ToLowerInvariant()
         RUN_SERVICE_MODEL_BENCHMARK=([string][bool]$IncludeLocalModel).ToLowerInvariant()
         RUN_DB_OUTAGE_REHEARSAL=([string][bool]$IncludeDatabaseOutage).ToLowerInvariant()
+        RUN_HTTP_BENCHMARK=([string][bool]$IncludeHttpBenchmark).ToLowerInvariant()
     }
     foreach($name in $variables.Keys){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$variables[$name],'Process')}
     Push-Location -LiteralPath $projectRoot
@@ -105,12 +115,13 @@ try {
         $selectedTests=@('MigrationRehearsalTest')
         if($IncludeServiceBenchmark){$selectedTests+='ServiceLoadBenchmarkTest'}
         if($IncludeDatabaseOutage){$selectedTests+='DatabaseOutageRehearsalTest'}
+        if($IncludeHttpBenchmark){$selectedTests+='HttpLoadBenchmarkTest'}
         $testSelection='-Dtest='+($selectedTests -join ',')
         $testHeap=if($IncludeServiceBenchmark){'-DargLine=-Xms64m -Xmx768m'}else{'-DargLine=-Xms32m -Xmx384m'}
         & mvn.cmd -q $testHeap $testSelection test *> (Join-Path $runRoot 'migration-tests.log')
         if($LASTEXITCODE -ne 0){throw 'Selected isolated checks failed; see protected local test log.'}
     } finally {Pop-Location}
-    Write-Output 'PASS: all selected isolated checks. No existing database was connected or altered.'
+    Write-Output 'PASS: all selected isolated checks. No existing MySQL database was connected or altered; HTTP mode uses only test Redis DB15.'
 } catch {$failure=$_.Exception.Message; throw}
 finally {
     foreach($name in $saved.Keys){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}
