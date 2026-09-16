@@ -115,6 +115,8 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 物品浏览器验收在同一脚本追加 `--items`：`node scripts/check-identity-browser.mjs --confirm-test-environment --items`；真实上传、发布、驳回、修改重审、公开和关闭，结果在 `.local/items-browser/`。
 
+浏览器回归还覆盖“关闭请求已提交但响应延迟时，切换另一物品详情”：业务页面按会话和资源路径隔离，旧页卸载时取消请求并清空私密预览，迟到响应不能填回新物品页面。2026-09-16推送前复核：后端135项（含13项真实库）、前端76项、真实浏览器26项通过，三个HTTP联调脚本分别2144/194/373项断言通过。
+
 数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn '-Dtest=IdentityDatabaseIntegrationTest,ItemMediaDatabaseIntegrationTest' test`。默认 `dev.ps1 verify` 跳过13项真实库测试，运行122项普通测试与打包。真实库测试验证资格锁、到期复核、物品审计故障回滚、图片唯一绑定竞争、清理与UTC时刻，不清库。
 
 图片文件根目录默认 `.local/media-dev`，集成测试 `.local/media-test`，均不是静态公开目录。仅受控GET携带X-Token返回图片，前端生成Blob预览并在卸载时撤销。尺寸默认1200万像素、最长边8192，临时图24小时；这些只是可配置的本地技术测试值。`MEDIA_CLEANUP_ENABLED=false` 默认不运行定时清理；显式开启后按小时处理已过期/已移除记录，先PURGING、文件删除成功后DELETED，失败可重试。已绑定文件不清理。提交结果不确定的孤儿文件仅由内部 `orphanInventory()` 列出超过7天且无元数据的候选，需运维核对，不自动删除、不对外暴露路径。

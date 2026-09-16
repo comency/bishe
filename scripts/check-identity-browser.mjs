@@ -231,6 +231,36 @@ try {
     await user.navigate('/items/mine');
     await user.until(`!!document.querySelector('a[href="/items/${itemId}"]')`, 'closed item retained in my publications');
     await user.screenshot('items-mine-mobile', 375, 1000);
+    stage = 'late write response after item navigation';
+    const navigationItems = await user.evaluate(`(async()=>{
+      const session=JSON.parse(sessionStorage.getItem('campus-lost-found.session.v1'));
+      const ids=[];
+      for(const title of ['导航竞态合成物品A','导航竞态合成物品B']){
+        const response=await fetch('/api/items',{method:'POST',headers:{'X-Token':session.token,'Content-Type':'application/json'},body:JSON.stringify({title,description:'仅用于迟到响应隔离测试',type:'LOST'})});
+        if(!response.ok)throw new Error('fixture creation failed');ids.push((await response.json()).data.id);
+      }return ids;
+    })()`);
+    await user.navigate(`/items/${navigationItems[0]}`);
+    await user.until("!!document.querySelector('.item-form textarea')", 'navigation fixture close form');
+    await user.evaluate(`(() => {
+      const original=window.fetch.bind(window);window.__heldItemResponse=false;
+      window.fetch=async (...args)=>{
+        const response=await original(...args);
+        if(args[0]===${JSON.stringify(`/api/items/${navigationItems[0]}/close`)}){
+          window.__heldItemResponse=true;await new Promise(resolve=>{window.__releaseItemResponse=resolve});
+        }return response;
+      };
+      window.__restoreItemFetch=()=>{window.fetch=original};
+    })()`);
+    await user.fill('.item-form textarea', '合成导航竞态测试');
+    await user.click('.item-form input[type="checkbox"]');
+    await user.click('.item-form button[type="submit"]');
+    await user.until('window.__heldItemResponse===true', 'real close committed but response delivery held');
+    await user.evaluate(`document.querySelector('#app').__vue_app__.config.globalProperties.$router.push('/items/${navigationItems[1]}')`);
+    await user.until("document.querySelector('.item-article')?.innerText.includes('导航竞态合成物品B')", 'new detail must replace pending old detail');
+    await user.evaluate('window.__releaseItemResponse();window.__restoreItemFetch()');
+    await delay(200);
+    await user.check('late write response cannot populate a different item route', "document.querySelector('.item-article').innerText.includes('导航竞态合成物品B') && !document.querySelector('.item-article').innerText.includes('导航竞态合成物品A') && !document.querySelector('.item-form fieldset').disabled");
     await user.navigate('/items');
     await user.until("!!document.querySelector('.search-panel')", 'hall before revocation');
     await admin.navigate(`/admin/verifications/${userId}`);

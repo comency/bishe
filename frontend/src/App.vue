@@ -88,7 +88,8 @@ async function signOut() {
       </header>
       <main id="main-content" class="main-content">
         <p v-if="settings.config?.isTest" class="environment-notice" role="note">测试校园 · 请使用合成信息。测试核验不代表真实在校身份。</p>
-        <RouterView v-if="(!route.meta.requiresAuth || auth.hasSession) && (!route.meta.requiresVerification || auth.canUseBusiness) && (!route.meta.requiresAdmin || auth.isAdmin)" :key="route.meta.guest ? 'guest' : auth.session?.token ?? 'guest'" />
+        <!-- A different resource path must unmount the old request/form state, even during a write. -->
+        <RouterView v-if="(!route.meta.requiresAuth || auth.hasSession) && (!route.meta.requiresVerification || auth.canUseBusiness) && (!route.meta.requiresAdmin || auth.isAdmin)" :key="route.meta.guest ? 'guest' : `${auth.session?.token ?? 'guest'}:${route.path}`" />
       </main>
       <footer>校园失物招领智能管理系统 <span>人工核验准入 · 校园互助</span></footer>
     </div>
