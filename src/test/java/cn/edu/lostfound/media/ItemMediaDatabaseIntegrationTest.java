@@ -93,4 +93,20 @@ class ItemMediaDatabaseIntegrationTest {
     byte[] bomb=png.clone();bomb[16]=0x7f;bomb[17]=(byte)0xff;bomb[18]=(byte)0xff;bomb[19]=(byte)0xff;
     assertThatThrownBy(()->media.upload(owner,new MockMultipartFile("file",bomb))).isInstanceOf(IllegalArgumentException.class);
   }
+  @Test void legacyUnknownDatesReadAsNullAndEditingDoesNotInventCreationTime(){
+    long itemId=id(items.create(owner,create()));
+    items.review(itemId,admin,new ItemDtos.Review("APPROVED",0L,null,null));
+    // Only this test's newly created synthetic record is shaped like migrated V1 data.
+    jdbc.update("UPDATE items SET created_at=NULL,updated_at=NULL,created_at_utc=NULL,updated_at_utc=NULL WHERE id=? AND publisher_id=?",itemId,owner);
+    var detail=items.get(itemId,owner,false,1,10);
+    assertThat(detail).containsEntry("createdAt",null).containsEntry("updatedAt",null);
+    var page=items.page(owner,"public",1,10,"","",null,null,itemId);
+    assertThat(page.total()).isEqualTo(1);assertThat(page.records().getFirst()).containsEntry("createdAt",null);
+    var edit=new ItemDtos.Update();edit.title="Synthetic legacy edited";edit.description="Synthetic facts retained";edit.type="FOUND";edit.expectedVersion=1L;
+    Instant before=Instant.now().minusSeconds(1);var updated=items.update(itemId,owner,edit);
+    assertThat(updated).containsEntry("createdAt",null).containsEntry("status","PENDING");
+    assertThat((Instant)updated.get("updatedAt")).isAfter(before).isBefore(Instant.now().plusSeconds(1));
+    assertThat(jdbc.queryForMap("SELECT created_at,created_at_utc FROM items WHERE id=?",itemId))
+      .containsEntry("created_at",null).containsEntry("created_at_utc",null);
+  }
 }

@@ -36,8 +36,10 @@ public class Item {
   public long getContentVersion(){return contentVersion;}
   public String getReviewReason(){return reviewReason;}
   public String getCloseReason(){return closeReason;}
-  public Instant createdInstant(ZoneId legacyZone){return createdAtUtc==null?createdAt.atZone(legacyZone).toInstant():createdAtUtc;}
-  public Instant updatedInstant(ZoneId legacyZone){return updatedAtUtc==null?updatedAt.atZone(legacyZone).toInstant():updatedAtUtc;}
+  // Migration preserves unknown historical dates; reading must not invent a timestamp.
+  public Instant createdInstant(ZoneId legacyZone){return timeOrUnknown(createdAtUtc,createdAt,legacyZone);}
+  public Instant updatedInstant(ZoneId legacyZone){return timeOrUnknown(updatedAtUtc,updatedAt,legacyZone);}
+  private static Instant timeOrUnknown(Instant utc,LocalDateTime legacy,ZoneId zone){return utc!=null?utc:legacy==null?null:legacy.atZone(zone).toInstant();}
   public void resubmit(){contentVersion++;status="PENDING";reviewReason=null;reviewedBy=null;reviewedAt=null;reviewedContentVersion=null;}
   public void review(String decision,Long reviewer,String reason,Instant now){status=decision;reviewedBy=reviewer;reviewReason=reason;reviewedAt=now;reviewedContentVersion=contentVersion;}
   public void close(String reason,String note,Instant now){status="CLOSED";closeReason=reason;closeNote=note;closedAt=now;}

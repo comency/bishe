@@ -329,6 +329,10 @@ finally { Remove-Item Env:RUN_AI_MODEL_TESTS -ErrorAction SilentlyContinue }
 
 账号、认证、审计、物品、媒体、认领和双向交接已建立业务入口。MySQL负责持久化、资格锁与认领状态一致性，Redis负责会话过期和限流；匹配使用Jaccard字符集合相似度，仅返回非零候选。智能辅助结构化修正后的39组真实适配器测试已通过，仍不等于真实应用端到端、商城并行或上线验收。当前Docker安装问题使Redis不可用，完整登录与业务成功链路待恢复；AI仍默认关闭。下一步完成相应联调，再推进一期全流程验收、部署准备与论文素材整理。
 
+## 历史物品时间兼容
+
+旧数据兼容性：物品创建/更新时间原值及UTC列都缺失时，分页/详情保留`null`，不抛异常或补造日期；已知UTC优先，已知旧时间按配置时区转换。真实编辑写入本次更新时间，但不补造未知创建时间。前端类型、接口说明和真实库回归同步覆盖。
+
 ## 独立服务层性能试验（非HTTP验收）
 
 `powershell -NoProfile -File scripts/Test-IsolatedDatabase.ps1 -ConfirmIsolatedRehearsal -IncludeServiceBenchmark`在新建的独立MySQL13307实例中完成6项迁移/恢复检查，再以真实Spring业务服务查询1万条合成物品。20并发、连接池3条、JVM堆768MiB，各阶段20秒；记录分页10/50条的成功延迟分位数、错误数和最低可用内存。只保留合成数据，不连接或清理已有业务数据库，最后核对自身实例正常退出。

@@ -8,11 +8,11 @@ export interface ImageMeta {
 export interface ItemSummary {
   id: number; publisherId: number; publisherNickname: string; title: string; type: 'LOST' | 'FOUND'
   category: string | null; location: string | null; occurredAt: string | null
-  status: keyof typeof itemStatuses; closeReason: string | null; createdAt: string
+  status: keyof typeof itemStatuses; closeReason: string | null; createdAt: string | null
   version: number; contentVersion: number; images: ImageMeta[]; hasAcceptedClaim: boolean; myClaimId: number | null
 }
 export interface ItemDetail extends ItemSummary {
-  description: string; updatedAt: string; reviewReason?: string | null; internalNote?: string | null
+  description: string; updatedAt: string | null; reviewReason?: string | null; internalNote?: string | null
   timeline?: Page<{ id: number; action: string; occurredAt: string; message: string | null }>
 }
 export const itemActions: Record<string, string> = { ITEM_CREATED: '提交发布', ITEM_EDITED: '编辑后重新送审', ITEM_APPROVED: '审核通过', ITEM_REJECTED: '审核驳回', ITEM_CLOSED: '关闭物品' }

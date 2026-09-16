@@ -65,5 +65,15 @@ class ItemServiceTest {
     assertThat(result).hasSize(1);assertThat(result.get(0).get("location")).isNull();assertThat((double)result.get(0).get("score")).isBetween(0.01,100.0);
   }
   @Test void invalidPageSizeRejected(){assertThatThrownBy(()->service.page(1,"public",1,51,"","","","",null)).isInstanceOf(IllegalArgumentException.class);}
+  @Test void legacyMissingTimesRemainUnknownInsteadOfCrashingOrInventingDates(){
+    ReflectionTestUtils.setField(item,"createdAt",null);ReflectionTestUtils.setField(item,"updatedAt",null);
+    var result=service.get(10,1,false,1,10);
+    assertThat(result).containsEntry("createdAt",null).containsEntry("updatedAt",null);
+  }
+  @Test void legacyMissingUpdatedTimeDoesNotFallBackToCreationTime(){
+    ReflectionTestUtils.setField(item,"createdAt",LocalDateTime.of(2026,1,2,3,4,5));ReflectionTestUtils.setField(item,"updatedAt",null);
+    var result=service.get(10,1,false,1,10);
+    assertThat(result).containsEntry("createdAt",Instant.parse("2026-01-01T19:04:05Z")).containsEntry("updatedAt",null);
+  }
   static void assertConflict(org.assertj.core.api.ThrowableAssert.ThrowingCallable action,String code){assertThatThrownBy(action).isInstanceOfSatisfying(BusinessException.class,e->assertThat(e.getErrorCode()).isEqualTo(code));}
 }
