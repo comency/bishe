@@ -1,10 +1,11 @@
 #requires -Version 5.1
 <# Disposable rehearsal instance only. No Windows service changes or existing database connections. #>
 [CmdletBinding()]
-param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark)
+param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark,[switch]$IncludeRichHttpData)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if (-not $ConfirmIsolatedRehearsal) { throw 'Explicit -ConfirmIsolatedRehearsal required before creating any files or processes.' }
+if($IncludeRichHttpData -and -not $IncludeHttpBenchmark){throw 'Rich HTTP data requires -IncludeHttpBenchmark.'}
 if($IncludeLocalModel -and (-not $IncludeServiceBenchmark -or -not $ConfirmLocalModel)){throw 'Local model benchmark additionally requires -IncludeServiceBenchmark -ConfirmLocalModel.'}
 if($IncludeHttpBenchmark -and ($IncludeServiceBenchmark -or $IncludeLocalModel -or $IncludeDatabaseOutage)){throw 'HTTP benchmark must run alone with AI disabled; do not combine benchmark modes.'}
 if(@(Get-ChildItem Env: | Where-Object {$_.Name -like 'SPRING_*' -or $_.Name -in @('JAVA_TOOL_OPTIONS','JDK_JAVA_OPTIONS','_JAVA_OPTIONS')}).Count){throw 'Remove inherited Spring/JVM overrides before isolated rehearsal; no values are printed.'}
@@ -107,6 +108,7 @@ try {
         RUN_SERVICE_MODEL_BENCHMARK=([string][bool]$IncludeLocalModel).ToLowerInvariant()
         RUN_DB_OUTAGE_REHEARSAL=([string][bool]$IncludeDatabaseOutage).ToLowerInvariant()
         RUN_HTTP_BENCHMARK=([string][bool]$IncludeHttpBenchmark).ToLowerInvariant()
+        RUN_HTTP_RICH_DATA=([string][bool]$IncludeRichHttpData).ToLowerInvariant()
     }
     foreach($name in $variables.Keys){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$variables[$name],'Process')}
     Push-Location -LiteralPath $projectRoot

@@ -36,6 +36,7 @@ class HttpLoadBenchmarkTest {
   private final List<Map<String,Object>> phases=new ArrayList<>();
   private final List<String> tokens=new ArrayList<>(), failures=new ArrayList<>();
   private final AtomicLong minimumFree=new AtomicLong(Long.MAX_VALUE);
+  private final boolean richData=Boolean.parseBoolean(System.getenv("RUN_HTTP_RICH_DATA"));
   private String origin;
   private int port;
 
@@ -61,6 +62,7 @@ class HttpLoadBenchmarkTest {
       assertThat(jdbc.queryForList("SHOW TABLES",String.class)).isEmpty();
       Flyway.configure().dataSource(source).locations("classpath:db/migration").cleanDisabled(true).baselineOnMigrate(false).load().migrate();
       String loginPassword=UUID.randomUUID().toString(); seed(jdbc,source,loginPassword);
+      if(richData) seedRelations(jdbc);
       var config=configuration(url,password,directory);
       var app=new SpringApplication(LostFoundApplication.class); app.setWebApplicationType(WebApplicationType.SERVLET);
       app.addInitializers(c->{c.getEnvironment().setActiveProfiles("httpbenchmark");
@@ -96,8 +98,9 @@ class HttpLoadBenchmarkTest {
           runPhase(client,"public-deep",10,701,"",publicIds);
           runPhase(client,"keyword-type-category",10,1,"&keyword=synthetic&type=FOUND&category=digital",filteredIds);
           assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM items",Long.class)).isEqualTo(10000);
-          assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM claims",Long.class)).isZero();
-          assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM item_images",Long.class)).isZero();
+          assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM claims",Long.class)).isEqualTo(richData?8000L:0L);
+          assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM item_images",Long.class)).isEqualTo(richData?15000L:0L);
+          assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM media_files",Long.class)).isEqualTo(richData?15000L:0L);
           completed=true;
         } finally {
           // Delete only the exact sessions this run obtained through login, never other keys.
@@ -130,12 +133,15 @@ class HttpLoadBenchmarkTest {
       result.put("phaseSeconds",SECONDS);result.put("connectionPoolMaximum",3);result.put("httpPort",port);result.put("redisDatabase",15);
       result.put("heapMaxBytes",Runtime.getRuntime().maxMemory());result.put("minimumFreeBytes",minimumFree.get());
       result.put("ownedSessionsRemoved",sessionsRemoved);result.put("aiEnabled",false);
+      result.put("dataset",richData?"relations-v1":"baseline-v1");
+      result.put("imageMetadataCount",richData?15000:0);result.put("claimCount",richData?8000:0);
       result.put("os",System.getProperty("os.name"));result.put("javaVersion",System.getProperty("java.version"));result.put("processors",os.getAvailableProcessors());
       result.put("limitations",List.of("Real loopback HTTP/auth/Redis/JSON/JPA, but client and server share test JVM; not packaged candidate or production network",
           "Closed-loop 20 workers, one request in flight each; not a fixed arrival-rate or soak test; no coordinated-omission correction",
           "Success percentiles include body parsing/semantic assertions; error rate includes failed requests; no retries",
           "Seeded/warmed MySQL buffer cache, no OS cache flush; paginated endpoint has no application result cache",
-          "20 synthetic publishers, 10000 items, no images or claims, uniform timestamps; other distributions remain untested",
+          richData?"20 synthetic publishers, 10000 items, 0-3 image metadata per item, 8000 claims; uniform timestamps; no image bytes or downloads; other distributions remain untested"
+              :"20 synthetic publishers, 10000 items, no images or claims, uniform timestamps; other distributions remain untested",
           "AI disabled; ordinary test service may remain running; mall stopped; not AI-parallel or full production NFR acceptance"));
       mapper.writerWithDefaultPrettyPrinter().writeValue(directory.resolve("http-benchmark.json").toFile(),result);
       System.out.println("HTTP BENCHMARK evidence: "+directory.resolve("http-benchmark.json"));
@@ -194,6 +200,8 @@ class HttpLoadBenchmarkTest {
   }
 
   private void assertPage(HttpClient client,String token,int size,int page,String filter,List<Integer> ids) throws Exception {
+    int actor=tokens.indexOf(token)+1;
+    assertThat(actor).isBetween(1,WORKERS);
     var result=request(client,"GET","/api/items/page?page="+page+"&pageSize="+size+filter,token,null,200);
     assertThat(result.path("total").asInt()).isEqualTo(ids.size());assertThat(result.path("records").size()).isEqualTo(size);
     assertThat(result.path("page").asInt()).isEqualTo(page);assertThat(result.path("pageSize").asInt()).isEqualTo(size);
@@ -204,8 +212,24 @@ class HttpLoadBenchmarkTest {
       assertThat(item.path("publisherId").asInt()).isEqualTo(1+((id-1)/500));
       assertThat(item.path("type").asText()).isEqualTo(id%2==0?"FOUND":"LOST");
       assertThat(item.path("category").asText()).isEqualTo(category(id));
-      for(String field:List.of("description","contact","identification","internalNote","reviewReason","password"))assertThat(item.has(field)).isFalse();
-      assertThat(item.path("images").size()).isZero();assertThat(item.path("hasAcceptedClaim").asBoolean()).isFalse();
+      for(String field:List.of("description","contact","identification","internalNote","reviewReason","password",
+          "evidence","applicantId","applicantContactSnapshot","publisherContactSnapshot","claims"))assertThat(item.has(field)).isFalse();
+      assertThat(item.path("images").size()).isEqualTo(richData?imageCount(id):0);
+      for(int n=0;n<item.path("images").size();n++) {
+        var media=item.path("images").get(n);long mediaId=id*3L+imageCount(id)-n;
+        assertThat(media.path("id").asLong()).isEqualTo(mediaId);
+        assertThat(media.path("readPath").asText()).isEqualTo("/api/uploads/images/"+mediaId);
+        assertThat(media.path("state").asText()).isEqualTo("BOUND");
+        assertThat(media.path("mediaType").asText()).isEqualTo("image/png");
+        assertThat(media.path("sizeBytes").asInt()).isEqualTo(68);
+        assertThat(media.path("width").asInt()).isEqualTo(1);assertThat(media.path("height").asInt()).isEqualTo(1);
+        for(String field:List.of("storageKey","storage_key","uploaderId","uploader_id","sha256","bytes"))assertThat(media.has(field)).isFalse();
+      }
+      assertThat(item.path("hasAcceptedClaim").asBoolean()).isEqualTo(richData && hasClaims(id) && claimState(id).equals("ACCEPTED"));
+      Long mine=richData?ownClaim(id,actor):null;
+      assertThat(item.has("myClaimId")).isTrue();
+      if(mine==null)assertThat(item.path("myClaimId").isNull()).isTrue();
+      else assertThat(item.path("myClaimId").asLong()).isEqualTo(mine);
     }
   }
 
@@ -223,6 +247,48 @@ class HttpLoadBenchmarkTest {
   }
 
   private static String category(int id){return CATEGORIES[(id/2)%CATEGORIES.length];}
+  static int imageCount(int id){return id%4;}
+  static boolean hasClaims(int id){return id%2==0 && id%5!=0;}
+  static int applicant(int id,int offset){return (((id-1)/500)+offset)%20+1;}
+  static String claimState(int id){return new String[]{"APPLIED","ACCEPTED","REJECTED","CANCELLED"}[(id/2)%4];}
+  static Long ownClaim(int id,int actor){
+    if(!hasClaims(id))return null;
+    if(actor==applicant(id,1))return id*2L-1;
+    return actor==applicant(id,2)?id*2L:null;
+  }
+
+  /** Relational metadata only: this pagination test never reads image file contents. */
+  private void seedRelations(JdbcTemplate jdbc) {
+    for(int slot=1;slot<=3;slot++) {
+      jdbc.update("""
+          INSERT INTO media_files(id,uploader_id,storage_key,mime_type,size_bytes,width,height,sha256,lifecycle,created_at,updated_at)
+          SELECT id*3+?,publisher_id,CONCAT(LPAD(HEX(id*3+?),32,'0'),'.bin'),'image/png',68,1,1,REPEAT('0',64),'BOUND',
+          '2026-09-01','2026-09-01' FROM items WHERE MOD(id,4)>=?
+          """,slot,slot,slot);
+      // Reverse IDs to detect accidental sorting by media ID rather than display_order.
+      jdbc.update("""
+          INSERT INTO item_images(item_id,media_id,display_order,bound_at)
+          SELECT id,id*3+?,MOD(id,4)-?+1,'2026-09-01' FROM items WHERE MOD(id,4)>=?
+          """,slot,slot,slot);
+    }
+    for(int offset=1;offset<=2;offset++) {
+      String state=offset==1?"ELT(MOD(FLOOR(id/2),4)+1,'APPLIED','ACCEPTED','REJECTED','CANCELLED')":"'REJECTED'";
+      // SQL fragment is from the fixed two branches above, never request/environment text.
+      jdbc.update("""
+          INSERT INTO claims(id,item_id,publisher_id,applicant_id,item_title_snapshot,item_type_snapshot,
+          item_content_version_snapshot,evidence,applicant_contact_snapshot,status,accepted_at,publisher_contact_snapshot,
+          ended_at,end_reason_code,end_reason,created_at,updated_at)
+          SELECT id*2-2+?,id,publisher_id,MOD(publisher_id-1+?,20)+1,title,'FOUND',1,
+          'Synthetic private evidence','Synthetic applicant contact',s,
+          IF(s='ACCEPTED','2026-09-02',NULL),IF(s='ACCEPTED','Synthetic publisher contact',NULL),
+          IF(s IN ('REJECTED','CANCELLED'),'2026-09-03',NULL),
+          IF(s IN ('REJECTED','CANCELLED'),'SYNTHETIC_END',NULL),
+          IF(s IN ('REJECTED','CANCELLED'),'Synthetic ended claim',NULL),'2026-09-01','2026-09-03'
+          FROM (SELECT id,publisher_id,title,%s s FROM items WHERE type='FOUND' AND status='APPROVED') fixture
+          """.formatted(state),offset,offset);
+    }
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM claims WHERE status='ACCEPTED'",Long.class)).isEqualTo(1000L);
+  }
   private void seed(JdbcTemplate jdbc,DriverManagerDataSource source,String password) throws Exception {
     String hash=new BCryptPasswordEncoder().encode(password);
     for(int i=1;i<=21;i++) {
