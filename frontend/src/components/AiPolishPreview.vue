@@ -9,7 +9,7 @@ function apply() { if (!props.disabled && canApply.value && result.value) { cons
 </script>
 <template>
   <section class="ai-panel" aria-label="文案辅助预览">
-    <h2>文案辅助</h2><p class="muted">仅发送您当前填写的详细描述，不发送图片、联系人、认证材料或认领证据。请勿输入个人敏感信息。</p>
+    <h2>文案辅助</h2><p class="muted">保守整理模式：仅调整标点与空白，保留原有文字和数字，结果须自行核对。仅发送当前详细描述，不发送图片、联系人、认证材料或认领证据。请勿输入个人敏感信息。</p>
     <button type="button" class="secondary-button" :disabled="disabled || busy || !text.trim()" @click="run">{{ busy ? '生成预览中…' : '预览润色建议' }}</button>
     <button v-if="busy" type="button" class="text-button" @click="clear">取消等待</button>
     <p v-if="busy" role="status">可以继续编辑原文；结果不会自动覆盖或提交表单。</p>

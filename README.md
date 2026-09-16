@@ -120,7 +120,7 @@ finally { $env:TEST_ADMIN_PASSWORD = $previousTestAdminPassword }
 
 浏览器回归还覆盖“关闭请求已提交但响应延迟时，切换另一物品详情”：业务页面按会话和资源路径隔离，旧页卸载时取消请求并清空私密预览，迟到响应不能填回新物品页面。2026-09-16推送前复核：后端135项（含13项真实库）、前端76项、真实浏览器26项通过，三个HTTP联调脚本分别2144/194/373项断言通过。
 
-数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、`RUN_CLAIM_DB_TESTS=true`、`RUN_AI_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn verify`。默认 `dev.ps1 verify` 跳过29项真实库测试，运行153项普通测试与打包。真实库测试包含认领唯一接受竞争、双向并发确认、提交前对方到期、整体回滚、20组状态/确认组合（9组合法）、异常结案与跨模块限制，以及AI生成中撤销/到期、网络调用不持有数据库事务；只新增合成数据，不清库。
+数据库事务与并发测试需显式启用：在JDK21终端设置 `RUN_IDENTITY_DB_TESTS=true`、`RUN_ITEM_DB_TESTS=true`、`RUN_CLAIM_DB_TESTS=true`、`RUN_AI_DB_TESTS=true`、专用 `TEST_DB_USERNAME/TEST_DB_PASSWORD/TEST_ADMIN_PASSWORD` 后执行 `mvn verify`。默认 `dev.ps1 verify` 运行181项普通测试与打包，跳过29项真实库测试及1项真实模型测试。真实库测试包含认领唯一接受竞争、双向并发确认、提交前对方到期、整体回滚、20组状态/确认组合（9组合法）、异常结案与跨模块限制，以及AI生成中撤销/到期、网络调用不持有数据库事务；只新增合成数据，不清库。
 
 认领阶段新增真实联调命令（固定测试后端18080，浏览器另需前端15174）：
 
@@ -188,6 +188,25 @@ node scripts/check-ai-model.mjs --confirm-local-model-trial --diagnostic-warm
 ```
 
 11项脚本检查通过。模型服务已停止，AI保持关闭；Docker仍关闭，因此没有完成Redis依赖的业务并行或应用端到端验收。下一步先改进任务/输出约束与首次加载策略，使用独立样本复测；不自动下载更大模型，不直接放宽应用超时。
+
+### 内容约束修正（真实模型复测待续）
+
+针对上述缺陷，策略改为保守模式，并明确显示在前端：润色只整理标点/空白，后端拒绝文字、数字、顺序、否定词及数字分隔符的变更；显式脚本或改变任务的编辑指令在调用前拒绝。问答只允许模型逐字选取1–3条已审核流程语句，不允许自由编写规则。模型原始输出校验成功才返回GENERATED，不用固定文字冒充生成结果；被拒绝时沿用UNAVAILABLE/EMPTY_RESULT。静态帮助一直可用。
+
+策略集中在 `src/main/resources/ai-content-policy.json`，Java实际适配器和原始模型诊断读取同一版本。表面一致性不能证明所有标点调整都语义等价，问答选句也可能不相关，仍需用户核对。不能把这些约束或关键词拦截宣称为完整的提示词注入防护。
+
+`Warm-LocalAi.ps1 -ConfirmLocalTrial` 是显式运维预热：至少4GiB余量，核对运行时/模型摘要和无已加载模型，用合成请求覆盖加载、输入处理和解码，最多90秒，随后卸载。不会下载、自动启用AI或修改普通请求20秒期限；不是后台无限驻留。此轮只完成脚本保护检查，预热效果仍需实测。
+
+普通Maven回归181项通过，29项真实库与1项真实模型测试显式跳过；前端103项以及lint/类型检查/构建通过；14项试跑脚本检查通过。新增实际Java适配器+模型的测试覆盖原8组和新增8组样本，需人工启动已准备的Ollama，在JDK21终端显式运行：
+
+```powershell
+.\scripts\Warm-LocalAi.ps1 -ConfirmLocalTrial
+$env:RUN_AI_MODEL_TESTS='true'
+try { mvn '-Dtest=AiModelContractIntegrationTest' test }
+finally { Remove-Item Env:RUN_AI_MODEL_TESTS -ErrorAction SilentlyContinue }
+```
+
+该测试不使用数据库或Redis、不启用应用AI，结果写入`.local/ai-contract-trial/`。Node诊断只是原始模型输出观察，不执行Java内容守卫；不能替代此测试。用户要求等待另一项目完成Docker更新后才能再次退出Docker/WSL，此时内存不足，真实模型复测暂停，尚无修正后质量通过结论。详见E盘20记录。
 
 ## 接口概要
 

@@ -17,7 +17,7 @@ public final class AiDtos {
         case "RESOURCE_LIMIT"->"本地资源或文本容量不足，请缩短输入或继续手动操作。";
         case "BUSY"->"智能辅助正在处理其他请求，请稍后手动重试。";
         case "TIMEOUT"->"本次生成超时，原文未改变，可以继续手动操作。";
-        case "EMPTY_RESULT"->"未获得有效建议，原文未改变。";
+        case "EMPTY_RESULT"->"未获得符合内容约束的有效建议，原文未改变，可手动操作或查看静态帮助。";
         default->"智能辅助暂不可用，原文未改变，请继续手动操作。";
       };
       return new Result(message,"UNAVAILABLE",reason);

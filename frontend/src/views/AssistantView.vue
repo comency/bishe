@@ -9,7 +9,7 @@ const { result, snapshot, busy, error, run, clear } = useAiRequest('chat', () =>
 </script>
 <template>
   <section class="assistant-page">
-    <div class="page-heading"><div><span class="eyebrow">CAMPUS GUIDE</span><h1>智能使用助手</h1><p class="muted">只提供使用建议，不查询您的业务记录，不判断归属，也不会代您发布、审批或确认交接。</p></div></div>
+    <div class="page-heading"><div><span class="eyebrow">CAMPUS GUIDE</span><h1>智能使用助手</h1><p class="muted">模型仅从已审核的流程语句中选择相关说明，不自由编写业务规则。不会查询您的记录、判断归属或代您发布、审批及确认交接。</p></div></div>
     <p class="environment-notice">{{ config.config?.aiEnabled ? '已允许尝试本地模型，仍可能因资源、繁忙或超时不可用。' : '模型当前未启用；仍可使用下方静态帮助，手动业务不受影响。' }} 请勿输入姓名、学号、联系方式、认证材料或私密认领证据。</p>
     <form class="form-card item-form" @submit.prevent="run"><label>想了解哪个操作？<textarea v-model="question" required maxlength="3000" rows="4" placeholder="例如：认领被接受后，双方如何确认归还？" /></label><div class="button-row"><button type="submit" class="primary-button" :disabled="busy">{{ busy ? '等待建议…' : '询问使用方法' }}</button><button v-if="busy || result" type="button" class="text-button" @click="clear">{{ busy ? '取消等待' : '清除本次回答' }}</button></div></form>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p>

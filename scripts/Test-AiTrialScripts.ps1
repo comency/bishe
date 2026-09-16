@@ -7,7 +7,7 @@ function Check([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "Check failed: $Message" }
     $script:checks++
 }
-foreach ($name in @('Start-LocalAi.ps1', 'Sample-AiResources.ps1', 'Test-AiTrialScripts.ps1')) {
+foreach ($name in @('Start-LocalAi.ps1', 'Warm-LocalAi.ps1', 'Sample-AiResources.ps1', 'Test-AiTrialScripts.ps1')) {
     $file = Join-Path $PSScriptRoot $name
     $tokens = $null; $errors = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
@@ -17,6 +17,9 @@ foreach ($name in @('Start-LocalAi.ps1', 'Sample-AiResources.ps1', 'Test-AiTrial
 $denied = $false
 try { & (Join-Path $PSScriptRoot 'Start-LocalAi.ps1') -ResourceRoot $projectRoot } catch { $denied = $_.Exception.Message -match 'ConfirmLocalTrial' }
 Check $denied 'Server requires explicit confirmation before any filesystem or service changes.'
+$warmDenied = $false
+try { & (Join-Path $PSScriptRoot 'Warm-LocalAi.ps1') } catch { $warmDenied = $_.Exception.Message -match 'ConfirmLocalTrial' }
+Check $warmDenied 'Preflight requires explicit confirmation before generation.'
 $missingRuntime = $false
 try { & (Join-Path $PSScriptRoot 'Start-LocalAi.ps1') -ResourceRoot $projectRoot -ConfirmLocalTrial } catch { $missingRuntime = $_.Exception.Message -match 'portable Ollama' }
 Check $missingRuntime 'Missing runtime never causes an automatic install.'
