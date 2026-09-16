@@ -1,7 +1,12 @@
 #requires -Version 5.1
 <# Explicit isolated HTTP trial. No installation, migration, Docker operations or production enabling. #>
 [CmdletBinding()]
-param([switch]$ConfirmLocalTrial, [switch]$DatabaseChecked)
+param(
+    [switch]$ConfirmLocalTrial,
+    [switch]$DatabaseChecked,
+    [ValidateSet(256, 384, 512)]
+    [int]$MaximumHeapMiB = 512
+)
 $ErrorActionPreference = 'Stop'
 if (-not $ConfirmLocalTrial -or -not $DatabaseChecked) { throw 'Pass -ConfirmLocalTrial -DatabaseChecked after inspecting/backing up the dedicated test database.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -32,7 +37,8 @@ try {
     Push-Location -LiteralPath $projectRoot
     try {
         Write-Host 'Temporary real-model test API on 127.0.0.1:18081; test DB/Redis only, schema migration disabled. Ctrl+C stops it.'
-        & $java '-Xms64m' '-Xmx512m' '-jar' $jar '--spring.profiles.active=integration,modeltrial'
+        Write-Host "Trial JVM maximum heap: $MaximumHeapMiB MiB (not total process memory); 4 GiB host admission gate unchanged."
+        & $java '-Xms64m' "-Xmx${MaximumHeapMiB}m" '-jar' $jar '--spring.profiles.active=integration,modeltrial'
         if ($LASTEXITCODE -ne 0) { throw 'AI integration trial process failed.' }
     } finally { Pop-Location }
 } finally {

@@ -26,6 +26,18 @@ foreach ($flags in @(@{}, @{ConfirmLocalTrial=$true}, @{DatabaseChecked=$true}))
     Check $trialDenied 'HTTP trial requires both model consent and database inspection confirmation.'
 }
 $missingRuntime = $false
+foreach ($heap in @(0, 192, 257, 1024)) {
+    $heapDenied = $false
+    try { & (Join-Path $PSScriptRoot 'Start-AiIntegrationTrial.ps1') -ConfirmLocalTrial -DatabaseChecked -MaximumHeapMiB $heap }
+    catch { $heapDenied = $_ -is [System.Management.Automation.ErrorRecord] -and $_.FullyQualifiedErrorId -match 'ParameterArgumentValidationError' }
+    Check $heapDenied "Unsupported heap rejected during parameter binding before any startup: $heap"
+}
+foreach ($heap in @(256, 384, 512)) {
+    $consentDenied = $false
+    try { & (Join-Path $PSScriptRoot 'Start-AiIntegrationTrial.ps1') -MaximumHeapMiB $heap }
+    catch { $consentDenied = $_.Exception.Message -match 'ConfirmLocalTrial.*DatabaseChecked' }
+    Check $consentDenied "Supported heap still requires both explicit confirmations: $heap"
+}
 try { & (Join-Path $PSScriptRoot 'Start-LocalAi.ps1') -ResourceRoot $projectRoot -ConfirmLocalTrial } catch { $missingRuntime = $_.Exception.Message -match 'portable Ollama' }
 Check $missingRuntime 'Missing runtime never causes an automatic install.'
 foreach ($name in @('check-ai-model.mjs', 'check-ai-recovery.mjs', 'check-ai-live-api.mjs', 'check-ai-live-browser.mjs', 'check-redis-outage.mjs', 'check-cors-api.mjs', 'lib/local-trial-browser.mjs')) {
