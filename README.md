@@ -26,8 +26,9 @@
 | --- | --- | --- | --- | --- |
 | 开发 | `127.0.0.1:13306/lost_found` | `127.0.0.1:16379` | `127.0.0.1:8080` | `127.0.0.1:5174` |
 | 集成测试 | `127.0.0.1:13306/lost_found_test` | `127.0.0.1:16380` | `127.0.0.1:18080` | `127.0.0.1:15174`，`npm run dev:integration` |
+| 显式模型联调 | 同上专用测试库，禁用迁移 | 同上测试 Redis | `127.0.0.1:18081` | `127.0.0.1:15176`，`npm run dev:modeltrial` |
 
-商城的 `3306`、`6379`、`5173` 不属于本项目。测试库虽然单独授权，仍与开发库共用本机 MySQL 进程；数据库停机/磁盘故障测试需另建隔离实例。
+商城的 `3306`、`6379`、`5173`、`15175` 不属于本项目。测试库虽然单独授权，仍与开发库共用本机 MySQL 进程；数据库停机/磁盘故障测试需另建隔离实例。
 
 ## 首次准备
 
@@ -136,6 +137,21 @@ node scripts/check-claims-browser.mjs --confirm-test-environment
 其他独立验证工具：`scripts/check-database-isolation.mjs dev|integration` 使用当前进程的专用 DB 凭据，检查本库 V1 和跨库拒绝；`scripts/check-frontend.mjs --help` 说明真实 Edge 浏览器验证的准备条件。浏览器脚本只连 5174/8080，不新增业务数据，截图与结果输出到已忽略的 `.local/browser-check`。
 
 配置依据：[Spring Boot 外部配置](https://docs.spring.io/spring-boot/3.4/reference/features/external-config.html)、[版本化数据库初始化](https://docs.spring.io/spring-boot/3.4/how-to/data-initialization.html)、[Docker 本机端口发布](https://docs.docker.com/engine/network/port-publishing/)。
+
+## 显式真实模型应用联调
+
+普通开发和 integration 的 AI 仍默认关闭。确认测试库备份、V4结构及专用Redis后，构建最新JAR，再运行 `scripts/Start-AiIntegrationTrial.ps1 -ConfirmLocalTrial -DatabaseChecked`；前端运行 `npm run dev:modeltrial`。脚本仅本机18081/15176，拒绝占用端口及继承Spring/JVM覆盖；`integration,modeltrial`启动守卫在数据源初始化前核对测试库/Redis、校园、资源限制和禁用迁移。仅此组合提供管理员专用`/api/admin/ai-trial`标识，联调脚本在创建合成账号前检查它。
+
+另行显式启动并预热已校验的便携模型，从当前进程加载测试管理员密码后，依次执行：
+
+```powershell
+node scripts/check-ai-live-api.mjs --confirm-local-model-trial --confirm-test-environment
+node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-test-environment
+```
+
+脚本不替换真实模型响应，不清库；覆盖实际生成、资格、限流、单并发，以及预览/采用、原文变化和真实响应延迟。浏览器的响应延迟撤销场景不等于“模型计算过程中撤销”，后者另有真实数据库+受控提供者测试。结果分别保留在`.local/ai-http-trial/`和`.local/ai-live-browser/`，失败不得计为端到端通过。
+
+本轮状态：241项普通后端、106项前端通过，另此前29项真实库通过。Docker启动缺少安装注册表项，测试Redis不可用，故上述成功链路尚未执行；未修改注册表或重装。已利用现有故障完成22项真实HTTP/Edge故障断言：明确503、不放行、不把依赖故障伪装为AI降级，匿名仍401；375px及桌面截图已复核。复现命令 `node scripts/check-redis-outage.mjs --confirm-test-redis-unavailable` 要求测试Redis已经停止，脚本不会停止依赖。无新账号、无模型生成。临时18081/15176进程已停止。
 
 ## AI 配置
 

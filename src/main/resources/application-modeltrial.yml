@@ -1,0 +1,13 @@
+# Explicit temporary local AI integration trial only; never changes normal integration defaults.
+# Must be combined with integration and validated before datasource beans initialize.
+server:
+  address: 127.0.0.1
+  port: 18081
+spring:
+  flyway:
+    enabled: false
+ai:
+  enabled: ${AI_LOCAL_TRIAL_CONFIRMED:false}
+app:
+  ai-trial:
+    confirmed: ${AI_LOCAL_TRIAL_CONFIRMED:false}

@@ -5,9 +5,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [vue()],
   server: {
     host: '127.0.0.1',
-    port: mode === 'integration' ? 15174 : 5174,
+    port: mode === 'modeltrial' ? 15176 : mode === 'integration' ? 15174 : 5174,
     strictPort: true,
-    proxy: { '/api': { target: mode === 'integration' ? 'http://127.0.0.1:18080' : 'http://127.0.0.1:8080', changeOrigin: true } },
+    proxy: { '/api': { target: mode === 'modeltrial' ? 'http://127.0.0.1:18081' : mode === 'integration' ? 'http://127.0.0.1:18080' : 'http://127.0.0.1:8080', changeOrigin: true } },
   },
   preview: { host: '127.0.0.1', port: 4174, strictPort: true },
   test: {
