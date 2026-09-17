@@ -40,7 +40,7 @@ foreach ($heap in @(256, 384, 512)) {
 }
 try { & (Join-Path $PSScriptRoot 'Start-LocalAi.ps1') -ResourceRoot $projectRoot -ConfirmLocalTrial } catch { $missingRuntime = $_.Exception.Message -match 'portable Ollama' }
 Check $missingRuntime 'Missing runtime never causes an automatic install.'
-foreach ($name in @('check-ai-model.mjs', 'check-ai-recovery.mjs', 'check-ai-live-api.mjs', 'check-ai-live-browser.mjs', 'check-redis-outage.mjs', 'check-cors-api.mjs', 'lib/local-trial-browser.mjs')) {
+foreach ($name in @('check-ai-model.mjs', 'check-ai-recovery.mjs', 'check-ai-live-api.mjs', 'check-ai-live-browser.mjs', 'check-redis-outage.mjs', 'check-cors-api.mjs', 'lib/local-trial-browser.mjs', 'lib/ai-continuity.mjs')) {
     & node --check (Join-Path $PSScriptRoot $name)
     Check ($LASTEXITCODE -eq 0) "Node trial script parses: $name"
 }
@@ -58,6 +58,18 @@ $guardProcess.WaitForExit()
 Check ($guardProcess.ExitCode -eq 1 -and $guardError -match 'confirm-local-model-trial|Both explicit confirmations|confirm-test-redis-unavailable|confirm-local-trial') 'Evaluation requires explicit confirmation before HTTP calls.'
 $guardProcess.Dispose()
 }
-$sample = & (Join-Path $PSScriptRoot 'Sample-AiResources.ps1') -Seconds 1 | Select-Object -First 1 | ConvertFrom-Json
+$sample = & (Join-Path $PSScriptRoot 'Sample-AiResources.ps1') -Seconds 1 -Stage 'self-test' -TrackedProcessId $PID | Select-Object -First 1 | ConvertFrom-Json
 Check ($sample.freeMemoryMiB -gt 0 -and $sample.gpuFreeMiB -ge 0) 'Resource sampler returns host and GPU measurements.'
+Check ($sample.stage -eq 'self-test' -and $sample.processes.Count -eq 1 -and $sample.processes[0].id -eq $PID) 'Sampler records only explicitly selected process identities.'
+Check ($sample.processes[0].state -eq 'running' -and $sample.processes[0].workingSetMiB -gt 0 -and $sample.processes[0].privateMemoryMiB -gt 0 -and $sample.processes[0].cpuSeconds -ge 0) 'Sampler separates working set, private memory and cumulative CPU.'
+$stopRejected=$false
+try { & (Join-Path $PSScriptRoot 'Sample-AiResources.ps1') -Seconds 1 -StopFile $PSCommandPath } catch { $stopRejected=$_.Exception.Message -match 'stop signal already exists' }
+Check $stopRejected 'Existing stop signal cannot silently produce an empty successful sampling run.'
+foreach($invalid in @(@{TrackedProcessId=@(0)},@{Stage='not/a/stage'})){
+    $rejected=$false
+    try { & (Join-Path $PSScriptRoot 'Sample-AiResources.ps1') @invalid -Seconds 1 } catch { $rejected=$_.FullyQualifiedErrorId -match 'ParameterArgumentValidationError' }
+    Check $rejected 'Invalid sampler identity/label rejected before sampling.'
+}
+& node --test (Join-Path $PSScriptRoot 'tests/ai-continuity.test.mjs')
+Check ($LASTEXITCODE -eq 0) 'Bounded continuity scheduler unit tests pass without inference.'
 Write-Output "PASS: $checks AI trial script checks. No inference or installation performed."

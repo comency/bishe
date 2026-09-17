@@ -4,12 +4,13 @@ import { randomBytes } from 'node:crypto';
 import { freemem } from 'node:os';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { runRapidSequence } from './lib/ai-continuity.mjs';
 
 if (process.argv[2] === '--help') {
-  console.log('Start the explicit integration,modeltrial API on 127.0.0.1:18081 and verified Ollama on :11434. TEST_ADMIN_PASSWORD required. node scripts/check-ai-live-api.mjs --confirm-local-model-trial --confirm-test-environment [--business-overlap-only]. Optional mode only compares 10 baseline and 10 overlapping read requests with one real generation; not full functional or load acceptance. Creates synthetic accounts; no deletion or production enabling.');
+  console.log('Start the explicit integration,modeltrial API on 127.0.0.1:18081 and verified Ollama on :11434. TEST_ADMIN_PASSWORD required. node scripts/check-ai-live-api.mjs --confirm-local-model-trial --confirm-test-environment [--business-overlap-only|--continuity-only]. Overlap: 10 baseline/10 concurrent reads, one generation. Continuity: six serial generations then six with two bounded business readers, no retry or inter-call admission wait, stop on first failed outcome. Neither is full functional, soak or production load acceptance. Creates synthetic accounts; no deletion or production enabling.');
   process.exit(0);
 }
-if (![4, 5].includes(process.argv.length) || (process.argv.length === 5 && process.argv[4] !== '--business-overlap-only') || process.argv[2] !== '--confirm-local-model-trial' ||
+if (![4, 5].includes(process.argv.length) || (process.argv.length === 5 && !['--business-overlap-only','--continuity-only'].includes(process.argv[4])) || process.argv[2] !== '--confirm-local-model-trial' ||
     process.argv[3] !== '--confirm-test-environment' || !process.env.TEST_ADMIN_PASSWORD) {
   throw new Error('Both explicit confirmations and dedicated TEST_ADMIN_PASSWORD are required before network access.');
 }
@@ -19,6 +20,8 @@ const output = resolve('.local/ai-http-trial', new Date().toISOString().replace(
 await mkdir(output, { recursive: true });
 const checks = [], responses = [], generations = [], sessions = [], userIds = [];
 const overlapOnly = process.argv[4] === '--business-overlap-only';
+const continuityOnly = process.argv[4] === '--continuity-only';
+const continuityEvidence = [];
 const overlapEvidence = [];
 let stage = 'preflight', failure, ownModelTrial = false;
 function check(condition, label) { assert.ok(condition, label); checks.push(label); }
@@ -39,6 +42,9 @@ async function api(method, path, token, body, expected = 200, errorCode) {
   check(response.status === expected, `${method} ${path}: expected ${expected}, got ${response.status}`);
   check(response.headers.get('cache-control')?.includes('no-store'), `${path}: no-store`);
   const result = await response.json();
+  observation.headersMs = observation.elapsedMs;
+  observation.elapsedMs = Math.round(performance.now() - started); // Include body consumption, not just headers.
+  observation.freeAfterMiB = Math.round(freemem() / 1024 ** 2);
   // Only model outcome metadata; never retain login tokens or private API bodies.
   if (path === '/api/ai/chat' || path === '/api/ai/polish') {
     observation.modelStatus = result.data?.status ?? null;
@@ -87,7 +93,33 @@ try {
   await api('POST', '/api/ai/chat', null, { question: '如何认领？' }, 401, 'AUTH_REQUIRED');
   const first = await syntheticAccount(admin, 'a');
   await api('GET', '/api/admin/ai-trial', first.token, undefined, 403, 'FORBIDDEN');
-  if (overlapOnly) {
+  if (continuityOnly) {
+    stage = 'bounded rapid continuity';
+    // Four model requests per account, below the unchanged six/minute quota; no quota reset or pacing.
+    const accounts = [first, await syntheticAccount(admin, 'b'), await syntheticAccount(admin, 'c')];
+    async function readBusinessPage(token, mine = false) {
+      const data = await api('GET', mine ? '/api/items/mine/page' : '/api/items/page?pageSize=10', token);
+      check(Number.isInteger(data.total) && data.total >= 0 && Array.isArray(data.records), 'continuity business page has expected shape');
+      check(data.page === 1 && data.pageSize === 10 && data.records.length <= 10, 'continuity business page is bounded');
+      if (mine) check(data.total === 0 && data.records.length === 0, 'synthetic account has no published items');
+      else for (const item of data.records) {
+        check(item.status === 'APPROVED', 'continuity public page has approved items only');
+        check(!['description','contact','internalNote','reviewReason','evidence'].some(key => Object.hasOwn(item, key)), 'continuity public page omits private fields');
+      }
+      return data;
+    }
+    for (let i = 0; i < 10; i++) await readBusinessPage(first.token);
+    for (const workers of [0, 2]) {
+      const evidence = [];continuityEvidence.push({ phase: workers ? 'with-business-reads' : 'serial', samples: evidence });
+      await runRapidSequence({ count: 6, workers, maxReadsPerWorker: 40, evidence,
+        generate: index => api('POST', '/api/ai/chat', accounts[index % accounts.length].token,
+          { question: '认领被接受后，双方应该如何确认归还？' }),
+        accept: (result, index) => offered(result, `continuity-${workers}-${index}`, 4),
+        read: (index, worker, n) => readBusinessPage(accounts[index % accounts.length].token, (worker + n) % 2 !== 0),
+      });
+    }
+    for (const account of accounts) check((await api('GET', '/api/items/mine/page', account.token)).total === 0, 'continuity creates no items');
+  } else if (overlapOnly) {
     stage = 'bounded business HTTP overlap diagnostic';
     async function readWave(label, isModelPending = () => false) {
       return Promise.all(Array.from({ length: 10 }, async (_, index) => {
@@ -171,7 +203,10 @@ try {
   await writeFile(resolve(output, 'result.json'), JSON.stringify({ at: new Date().toISOString(), checks, responses, generations,
     syntheticUserIds: userIds, failure: failure ?? null, actualHttpResponses: responses.length,
     actualGeneratedResults: generations.length, completed: !failure, contentPolicyVersion: policy.version,
-    mode: overlapOnly ? 'bounded-business-overlap' : 'full-functional', overlapEvidence,
-    limitations: ['No browser in this script', 'Revocation before a later request; in-flight revocation covered separately', 'No production or mall parallel-load claim'] }, null, 2));
+    plannedGenerationCount: continuityOnly ? 12 : overlapOnly ? 1 : 5,
+    mode: continuityOnly ? 'bounded-rapid-continuity' : overlapOnly ? 'bounded-business-overlap' : 'full-functional', overlapEvidence, continuityEvidence,
+    limitations: ['No browser in this script', 'Revocation before a later request; in-flight revocation covered separately', 'No production or mall parallel-load claim',
+      'Continuity has no retries or inter-call admission waits; already-started business reads drain before the next generation',
+      'At most twelve generations and eighty reads per overlapping request; pending HTTP is not proof of GPU compute overlap or long-term stability'] }, null, 2));
   console.log(`${failure ? 'FAIL' : 'PASS'} ${checks.length} live AI HTTP checks. Evidence: ${output}. Synthetic records retained; own sessions logged out.`);
 }
