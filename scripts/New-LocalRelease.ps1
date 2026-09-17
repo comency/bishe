@@ -40,7 +40,7 @@ try {
         RUN_IDENTITY_DB_TESTS='false';RUN_ITEM_DB_TESTS='false';RUN_CLAIM_DB_TESTS='false';RUN_AI_DB_TESTS='false'
         RUN_AI_MODEL_TESTS='false';RUN_MIGRATION_REHEARSAL='false'
         RUN_SERVICE_BENCHMARK='false';RUN_SERVICE_MODEL_BENCHMARK='false'
-        RUN_DB_OUTAGE_REHEARSAL='false';RUN_HTTP_BENCHMARK='false';RUN_HTTP_RICH_DATA='false'
+        RUN_DB_OUTAGE_REHEARSAL='false';RUN_HTTP_BENCHMARK='false';RUN_HTTP_RICH_DATA='false';RUN_HTTP_DB_OUTAGE_REHEARSAL='false'
         HTTP_CANDIDATE_JAR='';HTTP_CANDIDATE_SHA256='';HTTP_CANDIDATE_REVISION=''
     }
     foreach($name in $settings.Keys){$previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$settings[$name],'Process')}

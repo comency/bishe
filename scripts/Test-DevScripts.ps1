@@ -45,6 +45,15 @@ try {
     $packagedDenied=$false
     try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') -ConfirmIsolatedRehearsal -CandidateDirectory 'not-used' } catch { $packagedDenied=$_.Exception.Message -match 'Candidate directory requires' }
     Assert-Check $packagedDenied 'Packaged candidate requires HTTP mode before resolving or creating paths.'
+    $outageDenied=$false
+    try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') -ConfirmIsolatedRehearsal -IncludeHttpDatabaseOutage } catch { $outageDenied=$_.Exception.Message -match 'HTTP database outage requires' }
+    Assert-Check $outageDenied 'HTTP outage requires frozen candidate before filesystem/process changes.'
+    foreach($conflict in @('IncludeHttpBenchmark','IncludeServiceBenchmark','IncludeLocalModel','IncludeDatabaseOutage','IncludeRichHttpData')){
+        $outageArgs=@{ConfirmIsolatedRehearsal=$true;IncludeHttpDatabaseOutage=$true;CandidateDirectory='not-used'}
+        $outageArgs[$conflict]=$true;$outageDenied=$false
+        try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') @outageArgs } catch { $outageDenied=$_.Exception.Message -match 'HTTP database outage must run alone' }
+        Assert-Check $outageDenied 'HTTP outage rejects mixed modes before resolving or creating paths.'
+    }
     foreach($modelArgs in @(@{ConfirmIsolatedRehearsal=$true;IncludeLocalModel=$true},@{ConfirmIsolatedRehearsal=$true;IncludeLocalModel=$true;ConfirmLocalModel=$true})){
         $modelDenied=$false
         try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') @modelArgs } catch { $modelDenied=$_.Exception.Message -match 'Local model benchmark additionally requires' }

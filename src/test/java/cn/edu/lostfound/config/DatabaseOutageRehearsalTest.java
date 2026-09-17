@@ -142,13 +142,14 @@ class DatabaseOutageRehearsalTest {
     assertThat(body.path("data").path("version").asLong()).isEqualTo(version);assertThat(body.path("data").has("password")).isFalse();
   }
   /** No protocol parser, no fabricated SQL/results, no external destination or payload logging. */
-  private static final class OwnedRelay implements AutoCloseable {
+  static final class OwnedRelay implements AutoCloseable {
     private final ServerSocket listener=new ServerSocket(0,8,InetAddress.getByName("127.0.0.1"));
     private final ExecutorService workers=Executors.newVirtualThreadPerTaskExecutor();
     private final Set<Socket> sockets=ConcurrentHashMap.newKeySet();private boolean accepting=true;
     private final AtomicInteger forwarded=new AtomicInteger();
     OwnedRelay()throws IOException {workers.submit(()->{while(!listener.isClosed())try{connect(listener.accept());}catch(IOException ignored){if(listener.isClosed())return;}});}
     int port(){return listener.getLocalPort();}
+    int forwardedConnections(){return forwarded.get();}
     private synchronized void connect(Socket incoming)throws IOException {
       if(!accepting){incoming.close();return;}Socket upstream=new Socket();
       try {upstream.connect(new InetSocketAddress("127.0.0.1",13307),1000);sockets.add(incoming);sockets.add(upstream);forwarded.incrementAndGet();

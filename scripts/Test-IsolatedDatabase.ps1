@@ -1,11 +1,13 @@
 #requires -Version 5.1
 <# Disposable rehearsal instance only. No Windows service changes or existing database connections. #>
 [CmdletBinding()]
-param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark,[switch]$IncludeRichHttpData,[string]$CandidateDirectory='')
+param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark,[switch]$IncludeRichHttpData,[switch]$IncludeHttpDatabaseOutage,[string]$CandidateDirectory='')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if (-not $ConfirmIsolatedRehearsal) { throw 'Explicit -ConfirmIsolatedRehearsal required before creating any files or processes.' }
-if($CandidateDirectory -and -not $IncludeHttpBenchmark){throw 'Candidate directory requires -IncludeHttpBenchmark.'}
+if($IncludeHttpDatabaseOutage -and ($IncludeHttpBenchmark -or $IncludeServiceBenchmark -or $IncludeLocalModel -or $IncludeDatabaseOutage -or $IncludeRichHttpData)){throw 'HTTP database outage must run alone with AI disabled.'}
+if($IncludeHttpDatabaseOutage -and -not $CandidateDirectory){throw 'HTTP database outage requires -CandidateDirectory.'}
+if($CandidateDirectory -and -not ($IncludeHttpBenchmark -or $IncludeHttpDatabaseOutage)){throw 'Candidate directory requires -IncludeHttpBenchmark or -IncludeHttpDatabaseOutage.'}
 if($IncludeRichHttpData -and -not $IncludeHttpBenchmark){throw 'Rich HTTP data requires -IncludeHttpBenchmark.'}
 if($IncludeLocalModel -and (-not $IncludeServiceBenchmark -or -not $ConfirmLocalModel)){throw 'Local model benchmark additionally requires -IncludeServiceBenchmark -ConfirmLocalModel.'}
 if($IncludeHttpBenchmark -and ($IncludeServiceBenchmark -or $IncludeLocalModel -or $IncludeDatabaseOutage)){throw 'HTTP benchmark must run alone with AI disabled; do not combine benchmark modes.'}
@@ -31,7 +33,7 @@ if (-not (Test-Path -LiteralPath $serverExe) -or -not (Test-Path -LiteralPath $c
 if ((Get-Item -LiteralPath $serverExe).VersionInfo.FileVersion -ne '8.0.41.0') { throw 'Rehearsal currently verified only with the existing MySQL 8.0.41 binary.' }
 if (@(Get-NetTCPConnection -LocalPort 13307 -State Listen -ErrorAction SilentlyContinue).Count) { throw 'Dedicated port 13307 occupied. No service will be stopped.' }
 if ((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory*1KB -lt 4GB) { throw 'At least 4 GiB free required for bounded isolated rehearsal.' }
-if($IncludeHttpBenchmark){
+if($IncludeHttpBenchmark -or $IncludeHttpDatabaseOutage){
     $redisInfo=docker inspect campus-lost-found-local-redis-test-1 | ConvertFrom-Json
     if($LASTEXITCODE -ne 0 -or $redisInfo.Config.Labels.'com.docker.compose.project' -ne 'campus-lost-found-local' -or $redisInfo.State.Health.Status -ne 'healthy'){throw 'Owned healthy test Redis required; no container will be started or stopped.'}
     $binding=$redisInfo.NetworkSettings.Ports.'6379/tcp'
@@ -120,6 +122,7 @@ try {
         RUN_SERVICE_BENCHMARK=([string][bool]$IncludeServiceBenchmark).ToLowerInvariant()
         RUN_SERVICE_MODEL_BENCHMARK=([string][bool]$IncludeLocalModel).ToLowerInvariant()
         RUN_DB_OUTAGE_REHEARSAL=([string][bool]$IncludeDatabaseOutage).ToLowerInvariant()
+        RUN_HTTP_DB_OUTAGE_REHEARSAL=([string][bool]$IncludeHttpDatabaseOutage).ToLowerInvariant()
         RUN_HTTP_BENCHMARK=([string][bool]$IncludeHttpBenchmark).ToLowerInvariant()
         RUN_HTTP_RICH_DATA=([string][bool]$IncludeRichHttpData).ToLowerInvariant()
         HTTP_CANDIDATE_JAR=$candidateJar; HTTP_CANDIDATE_SHA256=$candidateHash; HTTP_CANDIDATE_REVISION=$candidateRevision
@@ -131,6 +134,7 @@ try {
         $selectedTests=@('MigrationRehearsalTest')
         if($IncludeServiceBenchmark){$selectedTests+='ServiceLoadBenchmarkTest'}
         if($IncludeDatabaseOutage){$selectedTests+='DatabaseOutageRehearsalTest'}
+        if($IncludeHttpDatabaseOutage){$selectedTests+='HttpDatabaseOutageTest'}
         if($IncludeHttpBenchmark){$selectedTests+='HttpLoadBenchmarkTest'}
         $testSelection='-Dtest='+($selectedTests -join ',')
         $testHeap=if($IncludeServiceBenchmark){'-DargLine=-Xms64m -Xmx768m'}else{'-DargLine=-Xms32m -Xmx384m'}
