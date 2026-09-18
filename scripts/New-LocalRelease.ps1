@@ -77,6 +77,10 @@ try {
         $nodeValues[$label]=[int]$match.Groups[1].Value
     }
     if($nodeValues.tests -le 0 -or $nodeValues.pass -ne $nodeValues.tests-$nodeValues.skipped -or $nodeValues.fail -ne 0){throw 'Node tool test summary is not successful.'}
+    $frontendEvidence=Get-Content -LiteralPath (Join-Path $buildRoot 'frontend-verify.log') -Raw
+    $frontendMatch=[regex]::Match($frontendEvidence,'(?m)^\s*Tests\s+(\d+)\s+passed\s+\((\d+)\)\r?$')
+    if(-not $frontendMatch.Success -or $frontendMatch.Groups[1].Value -ne $frontendMatch.Groups[2].Value){throw 'Frontend test summary is missing or malformed.'}
+    $frontendTests=[int]$frontendMatch.Groups[1].Value
     if((git rev-parse HEAD).Trim() -ne $revision -or (git status --porcelain)){throw 'Source revision/worktree changed during build; no candidate finalized.'}
     [void](New-Item -ItemType Directory -Path (Join-Path $candidateRoot 'backend'))
     Copy-Item -LiteralPath (Join-Path $sourceRoot 'target\lost-found-ai-1.0.0.jar') -Destination (Join-Path $candidateRoot 'backend\app.jar')
@@ -89,6 +93,7 @@ try {
         sourceSnapshotBuild=$true;frontendVerified=$true
         backendTests=@{tests=$tests;passed=$tests-$skipped;skipped=$skipped;failures=$failures;errors=$errors}
         toolTests=@{tests=$nodeValues.tests;passed=$nodeValues.pass;skipped=$nodeValues.skipped;failures=$nodeValues.fail}
+        frontendTests=@{tests=$frontendTests;passed=$frontendTests;skipped=0;failures=0}
         nodeVersion=(& node.exe --version);npmVersion=(& npm.cmd --version)
         javaBinaryVersion=(Get-Item -LiteralPath (Join-Path $javaRoot 'bin\java.exe')).VersionInfo.FileVersion
         sourceArchiveSha256=(Get-FileHash -LiteralPath $sourceZip -Algorithm SHA256).Hash.ToLowerInvariant()

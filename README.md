@@ -167,7 +167,7 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 在工作区干净且已提交时执行 `powershell.exe -NoProfile -File scripts/New-LocalRelease.ps1 -CreateCandidate`。工具从该提交导出全新源码快照，在独立`.local/release-build/`重新后端验证、前端`npm ci`及完整验证，不动现有node_modules/target、不启动服务或连接业务库。成功后生成`.local/releases/`候选目录，包含JAR、前端、源码快照、运行说明和逐文件SHA-256清单；失败保留构建日志，不宣布验收通过。
 
-使用 `node scripts/check-release.mjs <候选目录>`只读检查。新版format 2清单除后端/前端结果外，还记录干净源码快照内全部Node工具测试汇总；旧format 1候选仍可读取但明确返回无工具测试证据。34项Node测试覆盖部署验收、连续性、篡改、缺失/新增文件、路径穿越、符号链接、错误测试摘要及伪造生产放行标记。完整性清单不是数字签名，不能证明文件和清单同时被改后的可信来源。详见[候选包上线门禁](infra/RELEASE-CHECKLIST.md)；真实校园、HTTPS/代理、性能、实际应用模型联调与最终上线验收仍须独立完成，包构建不等于上线许可。
+使用 `node scripts/check-release.mjs <候选目录>`只读检查。新版format 3清单记录干净源码快照内后端、前端及全部Node工具测试汇总；旧format 1/2候选仍可读取，但对当时不存在的证据明确返回null。Node测试覆盖部署验收、连续性、篡改、缺失/新增文件、路径穿越、符号链接、错误测试摘要及伪造生产放行标记。完整性清单不是数字签名，不能证明文件和清单同时被改后的可信来源。详见[候选包上线门禁](infra/RELEASE-CHECKLIST.md)；真实校园、HTTPS/代理、性能、实际应用模型联调与最终上线验收仍须独立完成，包构建不等于上线许可。
 
 ## Production 配置启动门禁（不代表上线）
 

@@ -45,14 +45,20 @@ function validateMetadata(value, format) {
         tools.passed < 1 || tools.tests !== tools.passed + tools.skipped || tools.failures !== 0)
       throw new Error('Candidate requires an explicit successful tool test summary');
   }
+  if (format >= 3) {
+    const frontend = value.frontendTests;
+    if (!frontend || !['tests', 'passed', 'skipped', 'failures'].every(key => Number.isSafeInteger(frontend[key]) && frontend[key] >= 0) ||
+        frontend.passed < 1 || frontend.tests !== frontend.passed + frontend.skipped || frontend.failures !== 0)
+      throw new Error('Candidate requires an explicit successful frontend test summary');
+  }
 }
 export async function createManifest(root, metadata) {
-  root = resolve(root); validateMetadata(metadata, 2);
+  root = resolve(root); validateMetadata(metadata, 3);
   const names = await files(root);
   for (const name of required) if (!names.includes(name)) throw new Error(`Required candidate artifact missing: ${name}`);
   const entries = [];
   for (const path of names) { const bytes = await readFile(resolve(root, path)); entries.push({ path, bytes: bytes.length, sha256: sha256(bytes) }); }
-  const manifest = { format: 2, ...metadata, artifacts: entries };
+  const manifest = { format: 3, ...metadata, artifacts: entries };
   await writeFile(resolve(root, 'manifest.json'), JSON.stringify(manifest, null, 2), { flag: 'wx' });
   return manifest;
 }
@@ -64,7 +70,7 @@ export async function verifyManifest(root) {
   let manifest;
   try { manifest = JSON.parse((await readFile(resolve(root, 'manifest.json'), 'utf8')).replace(/^\uFEFF/, '')); }
   catch { throw new Error('Invalid candidate manifest JSON'); }
-  if (![1, 2].includes(manifest.format) || !Array.isArray(manifest.artifacts)) throw new Error('Unsupported candidate manifest');
+  if (![1, 2, 3].includes(manifest.format) || !Array.isArray(manifest.artifacts)) throw new Error('Unsupported candidate manifest');
   validateMetadata(manifest, manifest.format);
   const declared = [], folded = new Set();
   for (const artifact of manifest.artifacts) {
@@ -81,5 +87,5 @@ export async function verifyManifest(root) {
     if (bytes.length !== artifact.bytes || sha256(bytes) !== artifact.sha256) throw new Error(`Candidate content mismatch: ${artifact.path}`);
   }
   return { revision: manifest.revision, artifacts: actual.length, backendTests: manifest.backendTests,
-    toolTests: manifest.toolTests ?? null, productionApproved: false };
+    frontendTests: manifest.frontendTests ?? null, toolTests: manifest.toolTests ?? null, productionApproved: false };
 }
