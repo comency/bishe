@@ -79,7 +79,7 @@ try {
     Assert-Check $backupDenied 'Backup refuses missing dual confirmation before reading configuration or creating files.'
     $backupSource=Get-Content -LiteralPath $backupScript -Raw
     Assert-Check ($backupSource -match 'MYSQL_PWD' -and $backupSource -notmatch '--password') 'Backup password is inherited by the client and never placed in arguments.'
-    Assert-Check ($backupSource -match '--single-transaction' -and $backupSource -match '--hex-blob') 'Database dump uses the documented transactional binary-safe options.'
+    Assert-Check ($backupSource -match '--single-transaction' -and $backupSource -match '--hex-blob' -and $backupSource -match '--skip-add-locks') 'Database dump uses transactional, binary-safe and least-privilege restore options.'
     Assert-Check ($backupSource -match 'ReparsePoint' -and $backupSource -match 'manifest\.json') 'Media links are rejected and copied artifacts receive a hash manifest.'
     foreach($overrideName in @('SPRING_DATASOURCE_URL','JAVA_TOOL_OPTIONS')){
         $priorOverride=[Environment]::GetEnvironmentVariable($overrideName,'Process')
