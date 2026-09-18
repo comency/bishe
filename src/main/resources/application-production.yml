@@ -1,5 +1,6 @@
 server:
   address: ${SERVER_ADDRESS}
+  port: ${SERVER_PORT}
   forward-headers-strategy: none
 spring:
   datasource:
@@ -24,6 +25,11 @@ ai:
   enabled: false
   base-url: http://127.0.0.1:11434
 app:
+  session-ttl-hours: ${SESSION_TTL_HOURS:24}
+  rate-limit:
+    login-per-minute: ${LOGIN_RATE_LIMIT_PER_MINUTE:60}
+    register-per-minute: ${REGISTER_RATE_LIMIT_PER_MINUTE:30}
+    verification-per-minute: ${VERIFICATION_RATE_LIMIT_PER_MINUTE:12}
   proxy:
     trusted-addresses: ${TRUSTED_PROXY_ADDRESSES}
   web:

@@ -33,6 +33,7 @@ public class ProductionConfiguration {
         "Production profile refuses test campus mode");
     require(LOOPBACK.contains(required(environment, "server.address").toLowerCase()),
         "Production server must bind to an explicit loopback address behind the HTTPS proxy");
+    requireRange(environment, "server.port", 1, 65535);
     require("none".equalsIgnoreCase(required(environment, "server.forward-headers-strategy")),
         "Forwarded headers remain disabled until a trusted proxy policy is approved");
     String trustedProxy = required(environment, "app.proxy.trusted-addresses");
@@ -40,6 +41,10 @@ public class ProductionConfiguration {
         "Production trusted proxies must be loopback IP literals on the same host");
     require(!environment.getProperty("ai.enabled", Boolean.class, false),
         "Production AI remains disabled until its release gate is approved");
+    requireRange(environment, "app.session-ttl-hours", 1, 24);
+    requireRange(environment, "app.rate-limit.login-per-minute", 1, 300);
+    requireRange(environment, "app.rate-limit.register-per-minute", 1, 60);
+    requireRange(environment, "app.rate-limit.verification-per-minute", 1, 60);
     require("validate".equalsIgnoreCase(required(environment, "spring.jpa.hibernate.ddl-auto")),
         "Production Hibernate schema mode must remain validate");
     require(!environment.getProperty("spring.jpa.open-in-view", Boolean.class, true),
@@ -65,6 +70,17 @@ public class ProductionConfiguration {
     String value = environment.getProperty(name);
     require(value != null && !value.isBlank(), "Missing required production property: " + name);
     return value.trim();
+  }
+
+  private static void requireRange(Environment environment, String name, int minimum, int maximum) {
+    String configured = required(environment, name);
+    try {
+      int value = Integer.parseInt(configured);
+      require(value >= minimum && value <= maximum,
+          "Production property " + name + " must be between " + minimum + " and " + maximum);
+    } catch (NumberFormatException failure) {
+      throw new IllegalStateException("Production property " + name + " must be an integer", failure);
+    }
   }
 
   private static void requireAbsoluteMediaRoot(String configured) {

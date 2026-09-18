@@ -24,10 +24,16 @@ class ProductionConfigurationTest {
     rejects(e -> e.addActiveProfile("integration"));
     rejects(e -> e.withProperty("app.campus.test-mode", "true"));
     rejects(e -> e.withProperty("server.address", "0.0.0.0"));
+    rejects(e -> e.withProperty("server.port", "0"));
+    rejects(e -> e.withProperty("server.port", "not-a-port"));
     rejects(e -> e.withProperty("server.forward-headers-strategy", "framework"));
     rejects(e -> e.withProperty("app.proxy.trusted-addresses", "192.0.2.10"));
     rejects(e -> e.withProperty("app.proxy.trusted-addresses", "localhost"));
     rejects(e -> e.withProperty("ai.enabled", "true"));
+    rejects(e -> e.withProperty("app.session-ttl-hours", "25"));
+    rejects(e -> e.withProperty("app.rate-limit.login-per-minute", "0"));
+    rejects(e -> e.withProperty("app.rate-limit.register-per-minute", "61"));
+    rejects(e -> e.withProperty("app.rate-limit.verification-per-minute", "1000"));
     rejects(e -> e.withProperty("spring.jpa.hibernate.ddl-auto", "update"));
     rejects(e -> e.withProperty("spring.jpa.open-in-view", "true"));
     rejects(e -> e.withProperty("spring.flyway.baseline-on-migrate", "true"));
@@ -66,9 +72,14 @@ class ProductionConfigurationTest {
     MockEnvironment environment = new MockEnvironment()
         .withProperty("app.campus.test-mode", "false")
         .withProperty("server.address", "127.0.0.1")
+        .withProperty("server.port", "8080")
         .withProperty("server.forward-headers-strategy", "none")
         .withProperty("app.proxy.trusted-addresses", "127.0.0.1")
         .withProperty("ai.enabled", "false")
+        .withProperty("app.session-ttl-hours", "24")
+        .withProperty("app.rate-limit.login-per-minute", "60")
+        .withProperty("app.rate-limit.register-per-minute", "30")
+        .withProperty("app.rate-limit.verification-per-minute", "12")
         .withProperty("spring.jpa.hibernate.ddl-auto", "validate")
         .withProperty("spring.jpa.open-in-view", "false")
         .withProperty("spring.flyway.baseline-on-migrate", "false")

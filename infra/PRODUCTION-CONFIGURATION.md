@@ -7,6 +7,7 @@
 以下变量不在仓库中提供默认业务值：
 
 - `SERVER_ADDRESS`：仅允许`127.0.0.1`、`::1`或`localhost`，由同机HTTPS反向代理访问。
+- `SERVER_PORT`：应用在回环地址监听的明确端口，必须为1–65535；不能回退开发端口。
 - `TRUSTED_PROXY_ADDRESSES`：同机反向代理实际连接应用所使用的回环IP字面量，只允许`127.0.0.1`、`::1`或二者逗号分隔；不能填写主机名、端口或网段。
 - `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USERNAME`、`DB_PASSWORD`：正式MySQL专用最小权限账号。
 - `REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`：正式Redis；可选`REDIS_USERNAME`、`REDIS_DATABASE`。
@@ -23,6 +24,7 @@
 
 - `app.campus.test-mode=false`；
 - 应用只监听回环，`server.forward-headers-strategy=none`；仅当直接连接方命中显式可信代理时，账号限流解析有界的`X-Forwarded-For`链；
+- 会话有效期限定1–24小时；登录限流1–300次/分钟、注册和认证/认领限流1–60次/分钟，默认分别为24小时和60/30/12次；
 - AI保持关闭；
 - Hibernate仅`validate`，Flyway禁止自动baseline与clean，open-in-view关闭；
 - 数据库及Redis密码非空；
