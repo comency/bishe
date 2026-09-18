@@ -26,8 +26,9 @@
 - 应用只监听回环，`server.forward-headers-strategy=none`；仅当直接连接方命中显式可信代理时，账号限流解析有界的`X-Forwarded-For`链；
 - 会话有效期限定1–24小时；登录限流1–300次/分钟、注册和认证/认领限流1–60次/分钟，默认分别为24小时和60/30/12次；
 - AI保持关闭；
-- Hibernate仅`validate`，Flyway禁止自动baseline与clean，open-in-view关闭；
+- Hibernate仅`validate`，JPA禁止生成DDL和输出SQL，Flyway必须启用且禁止自动baseline/clean，SQL脚本初始化和open-in-view关闭；
 - 数据库及Redis密码非空；
+- Redis端口限定1–65535、库号限定0–63；生产错误响应禁止包含消息、绑定错误和堆栈；
 - 媒体目录为绝对路径，临时媒体清理开启；
 - CORS为空或全部为HTTPS origin。
 

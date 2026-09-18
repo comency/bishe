@@ -36,6 +36,9 @@ public class ProductionConfiguration {
     requireRange(environment, "server.port", 1, 65535);
     require("none".equalsIgnoreCase(required(environment, "server.forward-headers-strategy")),
         "Forwarded headers remain disabled until a trusted proxy policy is approved");
+    requireNever(environment, "server.error.include-message");
+    requireNever(environment, "server.error.include-binding-errors");
+    requireNever(environment, "server.error.include-stacktrace");
     String trustedProxy = required(environment, "app.proxy.trusted-addresses");
     require(Arrays.stream(trustedProxy.split(",", -1)).map(String::trim).allMatch(LOOPBACK_PROXY_LITERALS::contains),
         "Production trusted proxies must be loopback IP literals on the same host");
@@ -49,16 +52,26 @@ public class ProductionConfiguration {
         "Production Hibernate schema mode must remain validate");
     require(!environment.getProperty("spring.jpa.open-in-view", Boolean.class, true),
         "Production open-in-view must remain disabled");
+    require(!environment.getProperty("spring.jpa.show-sql", Boolean.class, true),
+        "Production SQL logging must remain disabled");
+    require(!environment.getProperty("spring.jpa.generate-ddl", Boolean.class, true),
+        "Production JPA schema generation must remain disabled");
+    require(environment.getProperty("spring.flyway.enabled", Boolean.class, false),
+        "Production Flyway migrations must remain enabled");
     require(!environment.getProperty("spring.flyway.baseline-on-migrate", Boolean.class, true),
         "Production Flyway baseline-on-migrate must remain disabled");
     require(environment.getProperty("spring.flyway.clean-disabled", Boolean.class, false),
         "Production Flyway clean must remain disabled");
+    require("never".equalsIgnoreCase(required(environment, "spring.sql.init.mode")),
+        "Production SQL script initialization must remain disabled");
     require(required(environment, "spring.datasource.url").startsWith("jdbc:mysql://"),
         "Production datasource must use an explicit MySQL JDBC URL");
     required(environment, "spring.datasource.username");
     required(environment, "spring.datasource.password");
     required(environment, "spring.data.redis.host");
     required(environment, "spring.data.redis.password");
+    requireRange(environment, "spring.data.redis.port", 1, 65535);
+    requireRange(environment, "spring.data.redis.database", 0, 63);
     require(environment.getProperty("app.media.cleanup-enabled", Boolean.class, false),
         "Production temporary media cleanup must be enabled");
     requireAbsoluteMediaRoot(required(environment, "app.media.root"));
@@ -81,6 +94,11 @@ public class ProductionConfiguration {
     } catch (NumberFormatException failure) {
       throw new IllegalStateException("Production property " + name + " must be an integer", failure);
     }
+  }
+
+  private static void requireNever(Environment environment, String name) {
+    require("never".equalsIgnoreCase(required(environment, name)),
+        "Production property " + name + " must remain never");
   }
 
   private static void requireAbsoluteMediaRoot(String configured) {

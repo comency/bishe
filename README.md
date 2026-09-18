@@ -171,7 +171,7 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 ## Production 配置启动门禁（不代表上线）
 
-`production` profile 使用独立的`application-production.yml`，应用端口、数据库、Redis、媒体绝对路径、校园名称/核验指引/支持渠道及同机可信代理IP必须由外部配置提供，不回退到本机测试值。启动守卫拒绝测试校园、无效端口、非回环应用监听、非回环/非IP可信代理、启用框架转发头、启用AI、越界会话/限流参数、Hibernate改表、Flyway baseline/clean、open-in-view、空数据库/Redis密码、相对媒体目录、关闭临时媒体清理及非HTTPS跨域来源；CORS留空表示仅同源。
+`production` profile 使用独立的`application-production.yml`，应用端口、数据库、Redis、媒体绝对路径、校园名称/核验指引/支持渠道及同机可信代理IP必须由外部配置提供，不回退到本机测试值。启动守卫拒绝测试校园、无效端口/Redis库号、非回环应用监听、非回环/非IP可信代理、启用框架转发头、启用AI、越界会话/限流参数、Hibernate改表或SQL输出、关闭Flyway、Flyway baseline/clean、SQL脚本初始化、open-in-view、详细错误响应、空数据库/Redis密码、相对媒体目录、关闭临时媒体清理及非HTTPS跨域来源；CORS留空表示仅同源。
 
 该门禁只负责“明显不安全时拒绝启动”，不会生成真实校园信息、证书或密码。当前要求应用仅监听回环并保持`server.forward-headers-strategy=none`；登录/注册限流仅在直接连接IP命中`TRUSTED_PROXY_ADDRESSES`时按有界`X-Forwarded-For`链识别客户端，异常链回退直接连接IP。正式反向代理仍须终止HTTPS、正确覆盖/追加该头并保留边缘限流。完整变量和未放行项见[正式配置门禁说明](infra/PRODUCTION-CONFIGURATION.md)。
 
