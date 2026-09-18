@@ -27,7 +27,8 @@ function Get-RedisOption {
 }
 
 try {
-    foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'), (Join-Path $PSScriptRoot 'New-LocalRelease.ps1'))) {
+    $backupScript = Join-Path $PSScriptRoot 'New-ConsistentBackup.ps1'
+    foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'), (Join-Path $PSScriptRoot 'New-LocalRelease.ps1'), $backupScript)) {
         $tokens = $null
         $parseErrors = $null
         $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors)
@@ -73,6 +74,13 @@ try {
     }
     try { & (Join-Path $PSScriptRoot 'New-LocalRelease.ps1') } catch { $candidateDenied=$_.Exception.Message -match 'CreateCandidate' }
     Assert-Check $candidateDenied 'Candidate builder refuses missing consent before filesystem/build actions.'
+    $backupDenied=$false
+    try { & $backupScript } catch { $backupDenied=$_.Exception.Message -match 'CreateBackup.*ConfirmWritesQuiesced' }
+    Assert-Check $backupDenied 'Backup refuses missing dual confirmation before reading configuration or creating files.'
+    $backupSource=Get-Content -LiteralPath $backupScript -Raw
+    Assert-Check ($backupSource -match 'MYSQL_PWD' -and $backupSource -notmatch '--password') 'Backup password is inherited by the client and never placed in arguments.'
+    Assert-Check ($backupSource -match '--single-transaction' -and $backupSource -match '--hex-blob') 'Database dump uses the documented transactional binary-safe options.'
+    Assert-Check ($backupSource -match 'ReparsePoint' -and $backupSource -match 'manifest\.json') 'Media links are rejected and copied artifacts receive a hash manifest.'
     foreach($overrideName in @('SPRING_DATASOURCE_URL','JAVA_TOOL_OPTIONS')){
         $priorOverride=[Environment]::GetEnvironmentVariable($overrideName,'Process')
         try {
