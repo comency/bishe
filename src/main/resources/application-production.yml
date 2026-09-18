@@ -1,0 +1,38 @@
+server:
+  address: ${SERVER_ADDRESS}
+  forward-headers-strategy: none
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      database: ${REDIS_DATABASE:0}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    baseline-on-migrate: false
+    clean-disabled: true
+ai:
+  enabled: false
+  base-url: http://127.0.0.1:11434
+app:
+  web:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  media:
+    root: ${MEDIA_ROOT}
+    cleanup-enabled: true
+  admin-password: ${ADMIN_PASSWORD:}
+  campus:
+    campus-id: ${CAMPUS_ID}
+    campus-name: ${CAMPUS_NAME}
+    test-mode: false
+    verification-instructions: ${CAMPUS_VERIFICATION_INSTRUCTIONS}
+    support-contact: ${CAMPUS_SUPPORT_CONTACT}

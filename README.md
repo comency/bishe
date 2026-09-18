@@ -169,6 +169,12 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 使用 `node scripts/check-release.mjs <候选目录>`只读检查，23项工具测试覆盖篡改、缺失/新增文件、路径穿越、符号链接、错误测试摘要及伪造生产放行标记。另43项开发环境脚本检查通过。完整性清单不是数字签名，不能证明文件和清单同时被改后的可信来源。详见[候选包上线门禁](infra/RELEASE-CHECKLIST.md)；真实校园、HTTPS/代理、性能、实际应用模型联调与最终上线验收仍须独立完成，包构建不等于上线许可。
 
+## Production 配置启动门禁（不代表上线）
+
+`production` profile 使用独立的`application-production.yml`，数据库、Redis、媒体绝对路径、校园名称/核验指引/支持渠道等必须由外部配置提供，不回退到本机测试值。启动守卫拒绝测试校园、非回环应用监听、启用转发头、启用AI、Hibernate改表、Flyway baseline/clean、open-in-view、空数据库/Redis密码、相对媒体目录、关闭临时媒体清理及非HTTPS跨域来源；CORS留空表示仅同源。
+
+该门禁只负责“明显不安全时拒绝启动”，不会生成真实校园信息、证书、密码或代理信任规则。当前要求应用仅监听回环并保持`server.forward-headers-strategy=none`；正式反向代理必须终止HTTPS并自行落实来源IP/登录注册限流，未经评审不得直接信任客户端转发头。完整变量和未放行项见[正式配置门禁说明](infra/PRODUCTION-CONFIGURATION.md)。
+
 ## 跨域访问边界
 
 不再使用通配来源：开发仅允许127.0.0.1/localhost的5174，integration仅15174，modeltrial仅15176；商城15175及其他来源被拒绝。请求只开放业务所需方法和Content-Type/X-Token/Accept，不共享Cookie凭据。CORS允许源仍须通过原有登录、角色、资格和对象权限检查。
