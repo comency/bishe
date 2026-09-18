@@ -175,7 +175,7 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 该门禁只负责“明显不安全时拒绝启动”，不会生成真实校园信息、证书或密码。当前要求应用仅监听回环并保持`server.forward-headers-strategy=none`；登录/注册限流仅在直接连接IP命中`TRUSTED_PROXY_ADDRESSES`时按有界`X-Forwarded-For`链识别客户端，异常链回退直接连接IP。正式反向代理仍须终止HTTPS、正确覆盖/追加该头并保留边缘限流。完整变量和未放行项见[正式配置门禁说明](infra/PRODUCTION-CONFIGURATION.md)。
 
-正式备份入口为`powershell -NoProfile -File scripts/New-ConsistentBackup.ps1 -CreateBackup -ConfirmWritesQuiesced -Destination <新的绝对目录>`；`mysqldump.exe`不在PATH时显式传入`-MySqlBin`。仅在应用入口和后台写入均已停止后使用；从进程环境读取正式数据库及媒体配置，数据库密码不进入命令行，目标必须在项目和媒体目录之外且不能已存在。成功目录包含`database.sql`、`media/`和逐文件SHA-256 `manifest.json`。恢复前运行`node scripts/check-backup.mjs <备份目录>`只读、流式复核精确库存、路径、大小与哈希。工具不负责停流、异地传输、保留周期或恢复，必须按发布清单恢复到隔离目标验收。
+正式备份入口为`powershell -NoProfile -File scripts/New-ConsistentBackup.ps1 -CreateBackup -ConfirmWritesQuiesced -Destination <新的绝对目录>`；`mysqldump.exe`不在PATH时显式传入`-MySqlBin`。仅在应用入口和后台写入均已停止后使用；从进程环境读取正式数据库及媒体配置，数据库密码不进入命令行，目标必须在项目和媒体目录之外且不能已存在。成功目录包含`database.sql`、`media/`和逐文件SHA-256 `manifest.json`。恢复前运行`node scripts/check-backup.mjs <备份目录>`只读、流式复核精确库存、路径、大小与哈希。隔离恢复入口为`Restore-ConsistentBackup.ps1`，只接受另行预建且为空的`restore_*`库、非破坏性单库SQL和全新媒体目录，读取单独的`RESTORE_DB_*`进程环境，导入失败保留现场且从不删库；通过后仍须启动应用完成业务冒烟。工具不负责停流、异地传输、保留周期或正式恢复决策。
 
 部署探针为公开但仅返回固定状态的`GET /api/health/live`和`GET /api/health/ready`。`live`只证明进程能处理HTTP，不访问依赖；`ready`依次执行MySQL只读`SELECT 1`和Redis `PING`，全部成功返回`200 {"status":"UP"}`，否则返回`503 {"status":"DOWN"}`。两者均`Cache-Control: no-store`，不返回地址、库名或异常详情。正式环境仍只监听回环，应由同机代理/编排器探测，不能把liveness成功当成业务就绪。
 

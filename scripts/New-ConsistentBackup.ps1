@@ -76,6 +76,7 @@ try {
     $info.FileName = $dumpExe
     $info.Arguments = '--no-defaults --protocol=TCP --host=' + $hostName + ' --port=' + $port + ' --user=' + $username +
         ' --single-transaction --no-tablespaces --skip-lock-tables --skip-add-locks --set-gtid-purged=OFF --hex-blob --default-character-set=utf8mb4' +
+        ' --skip-add-drop-table' +
         ' --result-file="' + $dumpFile + '" ' + $database
     $info.UseShellExecute = $false; $info.CreateNoWindow = $true
     $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true

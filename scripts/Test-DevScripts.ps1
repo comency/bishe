@@ -28,7 +28,8 @@ function Get-RedisOption {
 
 try {
     $backupScript = Join-Path $PSScriptRoot 'New-ConsistentBackup.ps1'
-    foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'), (Join-Path $PSScriptRoot 'New-LocalRelease.ps1'), $backupScript)) {
+    $restoreScript = Join-Path $PSScriptRoot 'Restore-ConsistentBackup.ps1'
+    foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'), (Join-Path $PSScriptRoot 'New-LocalRelease.ps1'), $backupScript, $restoreScript)) {
         $tokens = $null
         $parseErrors = $null
         $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors)
@@ -79,8 +80,17 @@ try {
     Assert-Check $backupDenied 'Backup refuses missing dual confirmation before reading configuration or creating files.'
     $backupSource=Get-Content -LiteralPath $backupScript -Raw
     Assert-Check ($backupSource -match 'MYSQL_PWD' -and $backupSource -notmatch '--password') 'Backup password is inherited by the client and never placed in arguments.'
-    Assert-Check ($backupSource -match '--single-transaction' -and $backupSource -match '--hex-blob' -and $backupSource -match '--skip-add-locks') 'Database dump uses transactional, binary-safe and least-privilege restore options.'
+    Assert-Check ($backupSource -match '--single-transaction' -and $backupSource -match '--hex-blob' -and $backupSource -match '--skip-add-locks' -and $backupSource -match '--skip-add-drop-table') 'Database dump uses transactional, binary-safe and least-privilege restore options.'
     Assert-Check ($backupSource -match 'ReparsePoint' -and $backupSource -match 'manifest\.json') 'Media links are rejected and copied artifacts receive a hash manifest.'
+    $restoreDenied=$false
+    try { & $restoreScript } catch { $restoreDenied=$_.Exception.Message -match 'RestoreBackup.*ConfirmIsolatedTarget' }
+    Assert-Check $restoreDenied 'Restore refuses missing dual confirmation before reading configuration or contacting SQL.'
+    $restoreSource=Get-Content -LiteralPath $restoreScript -Raw
+    Assert-Check ($restoreSource -match 'check-backup\.mjs' -and $restoreSource -match "\^restore_") 'Restore verifies the backup and restricts targets to explicit restore schemas.'
+    Assert-Check ($restoreSource -match 'MYSQL_PWD' -and $restoreSource -notmatch '--password') 'Restore password is inherited by the client and never placed in arguments.'
+    Assert-Check ($restoreSource -match 'information_schema\.tables' -and $restoreSource -notmatch 'DROP DATABASE|DROP SCHEMA') 'Restore proves the target is empty and never drops a schema.'
+    Assert-Check ($restoreSource -match 'forbiddenSql' -and $restoreSource -match 'OUTFILE' -and $restoreSource -match 'DROP.*TABLE') 'Restore rejects database switching, destructive table DDL and server-side file output before connecting.'
+    Assert-Check ($restoreSource -match 'SetAccessRuleProtection' -and $restoreSource -match 'Set-Acl') 'Restored private media receives an inheritance-protected owner-only ACL.'
     foreach($overrideName in @('SPRING_DATASOURCE_URL','JAVA_TOOL_OPTIONS')){
         $priorOverride=[Environment]::GetEnvironmentVariable($overrideName,'Process')
         try {
