@@ -30,7 +30,7 @@ class HttpDatabaseOutageTest {
     assertThat(prefix).matches("rehearsal_[0-9]{14}_[a-f0-9]{8}_");assertThat(databasePassword).matches("[a-f0-9]{48}");
     Path directory=Path.of(System.getenv("REHEARSAL_DIRECTORY")).toRealPath();
     assertThat(directory.startsWith(Path.of(".local/database-rehearsal").toRealPath())).isTrue();
-    String startedAt=Instant.now().toString();boolean completed=false,sessionsRemoved=false;int relayPort=0,forwarded=0;
+    String startedAt=Instant.now().toString();boolean completed=false,sessionsRemoved=false;int relayPort=0,forwarded=0,redisRelayPort=0,redisForwarded=0;
     try(var client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).followRedirects(HttpClient.Redirect.NEVER)
         .version(HttpClient.Version.HTTP_1_1).build()) {
       String suffix="/"+prefix+"outage?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&connectTimeout=1000&socketTimeout=2000";
@@ -44,9 +44,9 @@ class HttpDatabaseOutageTest {
       loginPassword=UUID.randomUUID().toString();
       jdbc.update("INSERT INTO users(id,username,password,nickname,role,is_test,created_at,updated_at) VALUES(1,'http_outage',?,'Before outage','USER',TRUE,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",new BCryptPasswordEncoder().encode(loginPassword));
       jdbc.update("INSERT INTO campus_verifications(user_id,campus_code,stored_status,created_at,updated_at) VALUES(1,'TEST_CAMPUS','UNVERIFIED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
-      try(var relay=new DatabaseOutageRehearsalTest.OwnedRelay()) {
-        relayPort=relay.port();
-        try(var target=PackagedBenchmarkTarget.start(configuration("jdbc:mysql://127.0.0.1:"+relayPort+suffix,directory),directory)) {
+      try(var relay=new DatabaseOutageRehearsalTest.OwnedRelay();var redisRelay=new DatabaseOutageRehearsalTest.OwnedRelay(16380)) {
+        relayPort=relay.port();redisRelayPort=redisRelay.port();
+        try(var target=PackagedBenchmarkTarget.start(configuration("jdbc:mysql://127.0.0.1:"+relayPort+suffix,directory,redisRelayPort),directory)) {
           origin="http://127.0.0.1:"+target.port();var redis=target.redis();boolean leaseOwned=false;
           try {
             try(var connection=Objects.requireNonNull(redis.getConnectionFactory()).getConnection()) {
@@ -91,6 +91,22 @@ class HttpDatabaseOutageTest {
               assertStored(jdbc,after,version+1);target.assertAlive();
               cycles.add(Map.of("cycle",cycle,"cutSockets",cutSockets,"recoveryMs",recoveryMs,"versionAfter",version+1));
             }
+            int redisCutSockets=redisRelay.cut();assertThat(redisCutSockets).isPositive();
+            assertHealth(client,"redis-live-cut","/api/health/live",200,"UP");
+            assertHealth(client,"redis-ready-cut","/api/health/ready",503,"DOWN");
+            request(client,"redis-authenticated-read-cut","GET","/api/users/me",token,null,503);
+            assertPublicConfig(request(client,"redis-config-cut","GET","/api/public/config",null,null,200));
+            request(client,"redis-anonymous-cut","GET","/api/users/me",null,null,401);
+            redisRelay.restore();long redisRestored=System.nanoTime(),redisDeadline=redisRestored+TimeUnit.SECONDS.toNanos(12);JsonNode redisRecovered;
+            do {
+              redisRecovered=request(client,"redis-recovery-read","GET","/api/users/me",token,null,200,503);
+              if(redisRecovered.path("code").asInt()==0)break;
+              Thread.sleep(100);
+            } while(System.nanoTime()<redisDeadline);
+            assertProfile(redisRecovered,"Recovered 2",2);
+            assertHealth(client,"redis-ready-restored","/api/health/ready",200,"UP");
+            long redisRecoveryMs=(System.nanoTime()-redisRestored)/1_000_000;assertThat(redisRecoveryMs).isLessThan(12000);
+            cycles.add(Map.of("dependency","redis","cutSockets",redisCutSockets,"recoveryMs",redisRecoveryMs));
             String second=login(client,"login-after-two-recoveries");
             assertThat(second).isNotEqualTo(token);assertThat(redis.opsForValue().get("session:"+second)).isEqualTo("1");
             assertProfile(request(client,"fresh-session-read","GET","/api/users/me",second,null,200),"Recovered 2",2);
@@ -109,7 +125,7 @@ class HttpDatabaseOutageTest {
               assertThat(sessionsRemoved).isTrue();
             } finally {if(leaseOwned)assertThat(compareDelete(redis,LEASE,prefix)).isEqualTo(1);}
           }
-        } finally {forwarded=relay.forwardedConnections();}
+        } finally {forwarded=relay.forwardedConnections();redisForwarded=redisRelay.forwardedConnections();}
       }
       assertThat(failures).isEmpty();
     } catch(Exception|AssertionError error) {failures.add("Run failed: "+error.getClass().getSimpleName());throw error;}
@@ -118,13 +134,15 @@ class HttpDatabaseOutageTest {
       evidence.put("startedAt",startedAt);evidence.put("endedAt",Instant.now().toString());evidence.put("completed",completed);
       evidence.put("passed",completed && sessionsRemoved && failures.isEmpty());evidence.put("failures",failures);
       evidence.put("requests",requests);evidence.put("cycles",cycles);evidence.put("relayPort",relayPort);evidence.put("upstreamPort",13307);
-      evidence.put("forwardedConnections",forwarded);evidence.put("ownedSessionsRemoved",sessionsRemoved);evidence.put("redisDatabase",15);
+      evidence.put("forwardedConnections",forwarded);evidence.put("redisRelayPort",redisRelayPort);evidence.put("redisUpstreamPort",16380);
+      evidence.put("redisForwardedConnections",redisForwarded);evidence.put("ownedSessionsRemoved",sessionsRemoved);evidence.put("redisDatabase",15);
       evidence.put("candidateSha256",System.getenv("HTTP_CANDIDATE_SHA256"));evidence.put("candidateRevision",System.getenv("HTTP_CANDIDATE_REVISION"));
       evidence.put("aiEnabled",false);evidence.put("networkHttp",true);
       evidence.put("limits",List.of("Loopback HTTP, frozen separate JVM, real Redis sessions and authentication interceptor; synthetic account only",
           "Only owned relay sockets cut; MySQL remains alive; no server crash, blackhole, lost COMMIT acknowledgment or mid-transaction HTTP claim",
           "Pool max 2/min 0/acquire 1000ms/validate 500ms; driver connect 1000ms/socket 2000ms; test bounds, not production SLA",
           "Only recovery GETs poll; no automatic write retry; deliberate stale PUT must return 409",
+          "Database and Redis outages cut only owned relay sockets; upstream services remain alive",
           "Own sessions and lease removed; rate counters expire naturally; no Redis flush or existing database changes"));
       mapper.writerWithDefaultPrettyPrinter().writeValue(directory.resolve("http-database-outage.json").toFile(),evidence);
       System.out.println("HTTP DATABASE OUTAGE evidence: "+directory.resolve("http-database-outage.json"));
@@ -195,13 +213,13 @@ class HttpDatabaseOutageTest {
         .containsEntry("nickname",nickname).containsEntry("version",version);
     assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM business_logs",Long.class)).isZero();
   }
-  private Map<String,Object> configuration(String url,Path directory) {
+  private Map<String,Object> configuration(String url,Path directory,int redisPort) {
     var c=new LinkedHashMap<String,Object>();c.put("server.address","127.0.0.1");c.put("server.port",0);
     c.put("spring.datasource.url",url);c.put("spring.datasource.username","rehearsal_runner");c.put("spring.datasource.password",databasePassword);
     c.put("spring.datasource.hikari.maximum-pool-size",2);c.put("spring.datasource.hikari.minimum-idle",0);
     c.put("spring.datasource.hikari.connection-timeout",1000);c.put("spring.datasource.hikari.validation-timeout",500);
     c.put("spring.flyway.enabled",false);c.put("spring.sql.init.mode","never");c.put("spring.jpa.hibernate.ddl-auto","validate");c.put("spring.jpa.generate-ddl",false);
-    c.put("spring.data.redis.host","127.0.0.1");c.put("spring.data.redis.port",16380);c.put("spring.data.redis.database",15);
+    c.put("spring.data.redis.host","127.0.0.1");c.put("spring.data.redis.port",redisPort);c.put("spring.data.redis.database",15);
     c.put("spring.data.redis.username","");c.put("spring.data.redis.password","");
     c.put("app.campus.test-mode",true);c.put("app.campus.campus-id","TEST_CAMPUS");c.put("app.admin-password","");
     c.put("app.media.root",directory.resolve("http-outage-media").toString());c.put("app.media.cleanup-enabled",false);c.put("ai.enabled",false);
