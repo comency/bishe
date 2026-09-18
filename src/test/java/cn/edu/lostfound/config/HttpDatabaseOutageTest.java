@@ -112,7 +112,7 @@ class HttpDatabaseOutageTest {
             assertProfile(request(client,"fresh-session-read","GET","/api/users/me",second,null,200),"Recovered 2",2);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM users",Long.class)).isEqualTo(1L);completed=true;
           } finally {
-            relay.restore();
+            relay.restore();redisRelay.restore();
             try {
               for(String token:tokens) {
                 try {request(client,"owned-logout","POST","/api/auth/logout",token,null,200);}

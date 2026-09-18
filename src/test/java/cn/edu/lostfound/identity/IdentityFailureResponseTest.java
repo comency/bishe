@@ -5,6 +5,7 @@ import cn.edu.lostfound.controller.GlobalExceptionHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.RedisSystemException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,6 +19,17 @@ class IdentityFailureResponseTest {
     assertThat(response.getBody()).isNotNull();
     assertThat(response.getBody().errorCode()).isEqualTo("SERVICE_UNAVAILABLE");
     assertThat(response.getBody().message()).doesNotContain("synthetic-secret");
+    assertThat(response.getBody().traceId()).isNotBlank();
+    assertThat(response.getBody().data()).isNull();
+  }
+
+  @Test
+  void redisProtocolFailureReturns503WithoutLeakingDependencyDetails() {
+    var response = handler.unavailable(new RedisSystemException("synthetic-secret-protocol-detail", new java.io.IOException("private endpoint")));
+    assertThat(response.getStatusCode().value()).isEqualTo(503);
+    assertThat(response.getBody()).isNotNull();
+    assertThat(response.getBody().errorCode()).isEqualTo("SERVICE_UNAVAILABLE");
+    assertThat(response.getBody().message()).doesNotContain("synthetic-secret", "private endpoint");
     assertThat(response.getBody().traceId()).isNotBlank();
     assertThat(response.getBody().data()).isNull();
   }

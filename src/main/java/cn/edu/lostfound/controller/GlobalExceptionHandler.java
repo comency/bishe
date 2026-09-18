@@ -61,7 +61,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   @ExceptionHandler({DataAccessResourceFailureException.class, QueryTimeoutException.class,
-      CannotCreateTransactionException.class, org.springframework.data.redis.RedisConnectionFailureException.class})
+      CannotCreateTransactionException.class, org.springframework.data.redis.RedisConnectionFailureException.class,
+      org.springframework.data.redis.RedisSystemException.class})
   public ResponseEntity<ApiResponse<Void>> unavailable(Exception ex) {
     var response=ApiResponse.<Void>fail("SERVICE_UNAVAILABLE", "服务暂时不可用，请稍后重试");
     // Exception text/SQL may contain applicant data; log only a correlation ID and exception type.
