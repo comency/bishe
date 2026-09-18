@@ -53,6 +53,8 @@ class HttpDatabaseOutageTest {
               assertThat(connection.serverCommands().dbSize()).isZero();
             }
             assertThat(redis.opsForValue().setIfAbsent(LEASE,prefix,Duration.ofMinutes(10))).isTrue();leaseOwned=true;
+            assertHealth(client,"initial-live","/api/health/live",200,"UP");
+            assertHealth(client,"initial-ready","/api/health/ready",200,"UP");
             assertPublicConfig(request(client,"initial-config","GET","/api/public/config",null,null,200));
             request(client,"initial-anonymous","GET","/api/users/me",null,null,401);
             String token=login(client,"initial-login");
@@ -62,6 +64,8 @@ class HttpDatabaseOutageTest {
               String phase="cycle-"+cycle, before=cycle==1?"Before outage":"Recovered 1", after="Recovered "+cycle;
               long version=cycle-1;String update=updateBody(after,version);
               int cutSockets=relay.cut();assertThat(cutSockets).isPositive();
+              assertHealth(client,phase+"-live-cut","/api/health/live",200,"UP");
+              assertHealth(client,phase+"-ready-cut","/api/health/ready",503,"DOWN");
               request(client,phase+"-read-cut","GET","/api/users/me",token,null,503);
               request(client,phase+"-write-cut","PUT","/api/users/me",token,update,503);
               var sessionsBefore=new HashSet<>(Objects.requireNonNull(redis.keys("session:*")));
@@ -78,6 +82,7 @@ class HttpDatabaseOutageTest {
                 Thread.sleep(100);
               } while(System.nanoTime()<deadline);
               assertProfile(recovered,before,version);
+              assertHealth(client,phase+"-ready-restored","/api/health/ready",200,"UP");
               long recoveryMs=(System.nanoTime()-restored)/1_000_000;assertThat(recoveryMs).isLessThan(12000);
               assertProfile(request(client,phase+"-write-restored","PUT","/api/users/me",token,update,200),after,version+1);
               var stale=request(client,phase+"-stale-write","PUT","/api/users/me",token,update,409);
@@ -162,6 +167,19 @@ class HttpDatabaseOutageTest {
       if(response.statusCode()==503)assertThat(envelope.path("errorCode").asText()).isEqualTo("SERVICE_UNAVAILABLE");
     }
     return envelope;
+  }
+  private void assertHealth(HttpClient client,String phase,String path,int expected,String status) throws Exception {
+    long start=System.nanoTime();
+    HttpResponse<String> response=client.send(HttpRequest.newBuilder(URI.create(origin+path)).timeout(Duration.ofSeconds(6))
+        .header("Accept","application/json").GET().build(),HttpResponse.BodyHandlers.ofString());
+    long elapsed=(System.nanoTime()-start)/1_000_000;
+    requests.add(Map.of("phase",phase,"status",response.statusCode(),"elapsedMs",elapsed));
+    assertThat(response.statusCode()).isEqualTo(expected);assertThat(elapsed).isLessThan(6000);
+    assertThat(response.headers().firstValue("cache-control").orElse("")).contains("no-store");
+    assertThat(response.headers().firstValue("content-type").orElse("")).contains("application/json");
+    JsonNode body=mapper.readTree(response.body());
+    assertThat(body.size()).isEqualTo(1);assertThat(body.path("status").asText()).isEqualTo(status);
+    assertThat(response.body()).doesNotContain("jdbc:","13307","rehearsal_","SQL",databasePassword,loginPassword);
   }
   private static void assertProfile(JsonNode envelope,String nickname,long version) {
     assertThat(envelope.path("code").asInt()).isZero();var data=envelope.path("data");
