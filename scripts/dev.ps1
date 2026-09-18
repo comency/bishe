@@ -196,9 +196,30 @@ function Get-LocalDocker {
     return $docker
 }
 
-function Invoke-LocalCompose {
-    param([string[]]$ComposeArguments)
+function Assert-LocalDockerEngine {
     $docker = Get-LocalDocker
+    # Windows PowerShell can promote native stderr to NativeCommandError even
+    # when the executable returns a normal non-zero diagnostic exit code.
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $null = & $docker --context desktop-linux info --format '{{json .ServerVersion}}' 2>&1
+        $engineExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($engineExitCode -eq 0) { return $docker }
+
+    $installKey = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Docker Inc.\Docker Desktop'
+    if (-not (Test-Path -LiteralPath $installKey)) {
+        throw 'Docker Desktop installation registration is missing. Repair or reinstall Docker Desktop as administrator while preserving its existing data; do not recreate registry values by hand.'
+    }
+    throw 'The local Docker Desktop engine is not running. Start Docker Desktop and wait until the desktop-linux engine is ready.'
+}
+
+function Invoke-LocalCompose {
+    param([string[]]$ComposeArguments, [switch]$RequireEngine)
+    $docker = if ($RequireEngine) { Assert-LocalDockerEngine } else { Get-LocalDocker }
     $arguments = @('--context', 'desktop-linux', 'compose', '--project-name', $script:ComposeProject,
         '--project-directory', $script:ProjectRoot, '--file', $script:ComposeFile, '--profile', 'integration')
     Invoke-CheckedTool -Tool $docker -Arguments ($arguments + $ComposeArguments)
@@ -208,7 +229,7 @@ function Assert-RedisPort {
     param([int]$Port, [string]$Service)
     $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
     if ($listeners.Count -eq 0) { return }
-    $docker = Get-LocalDocker
+    $docker = Assert-LocalDockerEngine
     $arguments = @('--context', 'desktop-linux', 'ps', '--quiet',
         '--filter', "label=com.docker.compose.project=$script:ComposeProject",
         '--filter', "label=com.docker.compose.service=$Service", '--filter', "publish=$Port")
@@ -245,14 +266,14 @@ try {
             }
             'redis-up' {
                 Assert-RedisPort -Port 16379 -Service 'redis'
-                Invoke-LocalCompose -ComposeArguments @('up', '--detach', '--wait', '--wait-timeout', '45', '--no-deps', 'redis')
+                Invoke-LocalCompose -RequireEngine -ComposeArguments @('up', '--detach', '--wait', '--wait-timeout', '45', '--no-deps', 'redis')
             }
             'redis-test-up' {
                 Assert-RedisPort -Port 16380 -Service 'redis-test'
-                Invoke-LocalCompose -ComposeArguments @('up', '--detach', '--wait', '--wait-timeout', '45', '--no-deps', 'redis-test')
+                Invoke-LocalCompose -RequireEngine -ComposeArguments @('up', '--detach', '--wait', '--wait-timeout', '45', '--no-deps', 'redis-test')
             }
             'redis-stop' {
-                Invoke-LocalCompose -ComposeArguments @('stop', 'redis', 'redis-test')
+                Invoke-LocalCompose -RequireEngine -ComposeArguments @('stop', 'redis', 'redis-test')
                 Write-Host 'Only this project Redis containers were stopped; no containers or volumes were deleted.'
             }
             'backend' {

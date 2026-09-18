@@ -35,6 +35,10 @@ try {
         $source = Get-Content -LiteralPath $file -Raw
         Assert-Check ($source -notmatch '[^\x00-\x7F]') 'Scripts remain ASCII-compatible UTF-8 for Windows PowerShell.'
     }
+    $devSource = Get-Content -LiteralPath $devScript -Raw
+    Assert-Check ($devSource -match 'function Assert-LocalDockerEngine') 'State-changing Docker commands have an engine preflight.'
+    Assert-Check ($devSource -match 'HKEY_LOCAL_MACHINE\\SOFTWARE\\Docker Inc\.\\Docker Desktop') 'Missing Docker Desktop installation registration is distinguished from a stopped engine.'
+    Assert-Check (([regex]::Matches($devSource, 'Invoke-LocalCompose -RequireEngine')).Count -eq 3) 'All Redis start/stop actions require a ready local engine.'
 
     $rehearsalDenied=$false
     try { & (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1') } catch { $rehearsalDenied=$_.Exception.Message -match 'ConfirmIsolatedRehearsal' }
