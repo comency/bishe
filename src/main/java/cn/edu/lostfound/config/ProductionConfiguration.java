@@ -18,6 +18,7 @@ import org.springframework.core.env.Environment;
 @Profile("production")
 public class ProductionConfiguration {
   private static final Set<String> LOOPBACK = Set.of("127.0.0.1", "::1", "localhost");
+  private static final Set<String> LOOPBACK_PROXY_LITERALS = Set.of("127.0.0.1", "::1");
 
   @Bean
   static BeanFactoryPostProcessor productionConfigurationGuard(ConfigurableEnvironment environment) {
@@ -34,6 +35,9 @@ public class ProductionConfiguration {
         "Production server must bind to an explicit loopback address behind the HTTPS proxy");
     require("none".equalsIgnoreCase(required(environment, "server.forward-headers-strategy")),
         "Forwarded headers remain disabled until a trusted proxy policy is approved");
+    String trustedProxy = required(environment, "app.proxy.trusted-addresses");
+    require(Arrays.stream(trustedProxy.split(",", -1)).map(String::trim).allMatch(LOOPBACK_PROXY_LITERALS::contains),
+        "Production trusted proxies must be loopback IP literals on the same host");
     require(!environment.getProperty("ai.enabled", Boolean.class, false),
         "Production AI remains disabled until its release gate is approved");
     require("validate".equalsIgnoreCase(required(environment, "spring.jpa.hibernate.ddl-auto")),

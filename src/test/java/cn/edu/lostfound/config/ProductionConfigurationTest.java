@@ -25,6 +25,8 @@ class ProductionConfigurationTest {
     rejects(e -> e.withProperty("app.campus.test-mode", "true"));
     rejects(e -> e.withProperty("server.address", "0.0.0.0"));
     rejects(e -> e.withProperty("server.forward-headers-strategy", "framework"));
+    rejects(e -> e.withProperty("app.proxy.trusted-addresses", "192.0.2.10"));
+    rejects(e -> e.withProperty("app.proxy.trusted-addresses", "localhost"));
     rejects(e -> e.withProperty("ai.enabled", "true"));
     rejects(e -> e.withProperty("spring.jpa.hibernate.ddl-auto", "update"));
     rejects(e -> e.withProperty("spring.jpa.open-in-view", "true"));
@@ -65,6 +67,7 @@ class ProductionConfigurationTest {
         .withProperty("app.campus.test-mode", "false")
         .withProperty("server.address", "127.0.0.1")
         .withProperty("server.forward-headers-strategy", "none")
+        .withProperty("app.proxy.trusted-addresses", "127.0.0.1")
         .withProperty("ai.enabled", "false")
         .withProperty("spring.jpa.hibernate.ddl-auto", "validate")
         .withProperty("spring.jpa.open-in-view", "false")

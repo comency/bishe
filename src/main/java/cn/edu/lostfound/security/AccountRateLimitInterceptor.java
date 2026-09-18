@@ -22,15 +22,17 @@ public class AccountRateLimitInterceptor implements HandlerInterceptor {
       return hits
       """, Long.class);
   private final StringRedisTemplate redis;
+  private final ClientAddressResolver clientAddresses;
   private final int loginLimit;
   private final int registerLimit;
   private final int submitLimit;
 
-  public AccountRateLimitInterceptor(StringRedisTemplate redis,
+  public AccountRateLimitInterceptor(StringRedisTemplate redis, ClientAddressResolver clientAddresses,
       @Value("${app.rate-limit.login-per-minute:60}") int loginLimit,
       @Value("${app.rate-limit.register-per-minute:30}") int registerLimit,
       @Value("${app.rate-limit.verification-per-minute:12}") int submitLimit) {
-    this.redis=redis; this.loginLimit=loginLimit; this.registerLimit=registerLimit; this.submitLimit=submitLimit;
+    this.redis=redis; this.clientAddresses=clientAddresses;
+    this.loginLimit=loginLimit; this.registerLimit=registerLimit; this.submitLimit=submitLimit;
   }
 
   @Override public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -38,8 +40,8 @@ public class AccountRateLimitInterceptor implements HandlerInterceptor {
     String path=request.getRequestURI().substring(request.getContextPath().length());
     int limit;
     String subject;
-    if (path.equals("/api/auth/login")) { limit=loginLimit; subject=request.getRemoteAddr(); }
-    else if (path.equals("/api/auth/register")) { limit=registerLimit; subject=request.getRemoteAddr(); }
+    if (path.equals("/api/auth/login")) { limit=loginLimit; subject=clientAddresses.resolve(request); }
+    else if (path.equals("/api/auth/register")) { limit=registerLimit; subject=clientAddresses.resolve(request); }
     else if (path.equals("/api/verifications/me")) { limit=submitLimit; subject=String.valueOf(UserContext.id()); }
     else if (path.matches("/api/items/[1-9][0-9]*/claims")) { limit=submitLimit; subject=String.valueOf(UserContext.id()); path="/api/claims/create"; }
     else if (path.equals("/api/ai/polish")||path.equals("/api/ai/chat")) { limit=6; subject=String.valueOf(UserContext.id()); path="/api/ai"; }

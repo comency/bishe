@@ -24,6 +24,8 @@ ai:
   enabled: false
   base-url: http://127.0.0.1:11434
 app:
+  proxy:
+    trusted-addresses: ${TRUSTED_PROXY_ADDRESSES}
   web:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   media:

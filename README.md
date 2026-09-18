@@ -171,9 +171,9 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 ## Production 配置启动门禁（不代表上线）
 
-`production` profile 使用独立的`application-production.yml`，数据库、Redis、媒体绝对路径、校园名称/核验指引/支持渠道等必须由外部配置提供，不回退到本机测试值。启动守卫拒绝测试校园、非回环应用监听、启用转发头、启用AI、Hibernate改表、Flyway baseline/clean、open-in-view、空数据库/Redis密码、相对媒体目录、关闭临时媒体清理及非HTTPS跨域来源；CORS留空表示仅同源。
+`production` profile 使用独立的`application-production.yml`，数据库、Redis、媒体绝对路径、校园名称/核验指引/支持渠道及同机可信代理IP必须由外部配置提供，不回退到本机测试值。启动守卫拒绝测试校园、非回环应用监听、非回环/非IP可信代理、启用框架转发头、启用AI、Hibernate改表、Flyway baseline/clean、open-in-view、空数据库/Redis密码、相对媒体目录、关闭临时媒体清理及非HTTPS跨域来源；CORS留空表示仅同源。
 
-该门禁只负责“明显不安全时拒绝启动”，不会生成真实校园信息、证书、密码或代理信任规则。当前要求应用仅监听回环并保持`server.forward-headers-strategy=none`；正式反向代理必须终止HTTPS并自行落实来源IP/登录注册限流，未经评审不得直接信任客户端转发头。完整变量和未放行项见[正式配置门禁说明](infra/PRODUCTION-CONFIGURATION.md)。
+该门禁只负责“明显不安全时拒绝启动”，不会生成真实校园信息、证书或密码。当前要求应用仅监听回环并保持`server.forward-headers-strategy=none`；登录/注册限流仅在直接连接IP命中`TRUSTED_PROXY_ADDRESSES`时按有界`X-Forwarded-For`链识别客户端，异常链回退直接连接IP。正式反向代理仍须终止HTTPS、正确覆盖/追加该头并保留边缘限流。完整变量和未放行项见[正式配置门禁说明](infra/PRODUCTION-CONFIGURATION.md)。
 
 ## 跨域访问边界
 
@@ -327,7 +327,7 @@ finally { Remove-Item Env:RUN_AI_MODEL_TESTS -ErrorAction SilentlyContinue }
 
 有效至日期包含当天，按校园时区次日零点排他到期；每次授权读数据库，不信任Token内旧角色或资格。资格写入与现有物品写入按资格锁协调，flush后提交前复核到期。审批历史、当前资格和审计同事务提交。管理员禁止自审；核验依据、内部备注、审核人仅管理详情可见，证明原图不上传。
 
-公开配置来自服务端 `app.campus`：默认 `TEST_CAMPUS`、`Asia/Shanghai`、测试模式，真实学校与渠道未落实时不虚构。昵称/联系方式不会改变认证资格。账号限流使用Redis原子计数，默认登录60次/IP/分钟、注册30次/IP/分钟、认证提交及认领申请分别12次/账号/分钟，超限429及Retry-After；认领申请采用跨物品统一计数，与认证独立计数，但暂共用`app.rate-limit.verification-per-minute`限额配置。当前本机直连按来源IP限流，代理部署前需明确可信代理策略。
+公开配置来自服务端 `app.campus`：默认 `TEST_CAMPUS`、`Asia/Shanghai`、测试模式，真实学校与渠道未落实时不虚构。昵称/联系方式不会改变认证资格。账号限流使用Redis原子计数，默认登录60次/IP/分钟、注册30次/IP/分钟、认证提交及认领申请分别12次/账号/分钟，超限429及Retry-After；认领申请采用跨物品统一计数，与认证独立计数，但暂共用`app.rate-limit.verification-per-minute`限额配置。本机直连按来源IP限流；代理部署仅信任显式配置的直接代理IP，并从转发链右侧跳过可信代理，客户端伪造头不能改变计数主体。
 
 认领写入按资格（双方时按userId升序）→物品→认领（多条按id升序）锁定。接受及未完成的交接在提交前再次核对双方到期；对方失效仅返回409 COUNTERPART_INELIGIBLE，不泄露核验原因。活动认领阻止物品编辑和本人关闭。只有双方确认才在同一事务内完成认领、关闭物品为RETURNED、拒绝其余待处理申请并记日志；已完成重试不增加版本/日志，但会校验完成事实。管理异常终止保留单方确认，不能伪造收到或标记归还。
 

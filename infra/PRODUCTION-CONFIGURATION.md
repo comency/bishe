@@ -7,6 +7,7 @@
 以下变量不在仓库中提供默认业务值：
 
 - `SERVER_ADDRESS`：仅允许`127.0.0.1`、`::1`或`localhost`，由同机HTTPS反向代理访问。
+- `TRUSTED_PROXY_ADDRESSES`：同机反向代理实际连接应用所使用的回环IP字面量，只允许`127.0.0.1`、`::1`或二者逗号分隔；不能填写主机名、端口或网段。
 - `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USERNAME`、`DB_PASSWORD`：正式MySQL专用最小权限账号。
 - `REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`：正式Redis；可选`REDIS_USERNAME`、`REDIS_DATABASE`。
 - `MEDIA_ROOT`：独立持久存储的绝对路径，不能使用仓库内`.local`相对目录。
@@ -21,7 +22,7 @@
 `ProductionConfiguration`在`production` profile启动时再次核对：
 
 - `app.campus.test-mode=false`；
-- 应用只监听回环，`server.forward-headers-strategy=none`；
+- 应用只监听回环，`server.forward-headers-strategy=none`；仅当直接连接方命中显式可信代理时，账号限流解析有界的`X-Forwarded-For`链；
 - AI保持关闭；
 - Hibernate仅`validate`，Flyway禁止自动baseline与clean，open-in-view关闭；
 - 数据库及Redis密码非空；
@@ -32,7 +33,7 @@
 
 ## 仍未解决的部署条件
 
-- 反向代理必须终止HTTPS、限制请求体/超时，并实现可信来源IP和登录/注册限流。应用当前明确不读取`X-Forwarded-For`等客户端可伪造头。
+- 反向代理必须终止HTTPS、限制请求体/超时，并覆盖或按可信规则追加`X-Forwarded-For`，同时保留边缘层限流。应用只在直接连接方命中`TRUSTED_PROXY_ADDRESSES`时从右向左选取首个非可信IP；未命中、格式异常、超过16跳或整条链均为可信代理时回退直接连接IP，客户端不能自行启用转发头信任。
 - 数据库和Redis的传输加密、网络ACL与证书信任须按实际拓扑确定；只填变量不等于网络安全已验收。
 - 正式备份频率、RPO/RTO、媒体与数据库一致性窗口、恢复责任和恢复后冒烟尚须签收。
 - 正式AI仍不放行；本地模型测试结果不能改变`production` profile的关闭状态。
