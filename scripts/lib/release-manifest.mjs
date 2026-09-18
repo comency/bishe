@@ -31,7 +31,7 @@ async function files(root) {
   if (new Set(folded).size !== folded.length) throw new Error('Case-insensitive duplicate artifact paths');
   return result.sort();
 }
-function validateMetadata(value) {
+function validateMetadata(value, format) {
   if (!value || !/^[a-f0-9]{40}$/.test(value.revision) || value.kind !== 'local-candidate' || value.productionApproved !== false ||
       typeof value.builtAt !== 'string' || !Number.isFinite(Date.parse(value.builtAt))) throw new Error('Invalid candidate identity/status metadata');
   const backend = value.backendTests;
@@ -39,14 +39,20 @@ function validateMetadata(value) {
       backend.passed < 1 || backend.tests !== backend.passed + backend.skipped || backend.failures !== 0 || backend.errors !== 0)
     throw new Error('Candidate requires an explicit successful backend test summary');
   if (value.frontendVerified !== true || value.sourceSnapshotBuild !== true) throw new Error('Candidate build verification missing');
+  if (format >= 2) {
+    const tools = value.toolTests;
+    if (!tools || !['tests', 'passed', 'skipped', 'failures'].every(key => Number.isSafeInteger(tools[key]) && tools[key] >= 0) ||
+        tools.passed < 1 || tools.tests !== tools.passed + tools.skipped || tools.failures !== 0)
+      throw new Error('Candidate requires an explicit successful tool test summary');
+  }
 }
 export async function createManifest(root, metadata) {
-  root = resolve(root); validateMetadata(metadata);
+  root = resolve(root); validateMetadata(metadata, 2);
   const names = await files(root);
   for (const name of required) if (!names.includes(name)) throw new Error(`Required candidate artifact missing: ${name}`);
   const entries = [];
   for (const path of names) { const bytes = await readFile(resolve(root, path)); entries.push({ path, bytes: bytes.length, sha256: sha256(bytes) }); }
-  const manifest = { format: 1, ...metadata, artifacts: entries };
+  const manifest = { format: 2, ...metadata, artifacts: entries };
   await writeFile(resolve(root, 'manifest.json'), JSON.stringify(manifest, null, 2), { flag: 'wx' });
   return manifest;
 }
@@ -58,8 +64,8 @@ export async function verifyManifest(root) {
   let manifest;
   try { manifest = JSON.parse((await readFile(resolve(root, 'manifest.json'), 'utf8')).replace(/^\uFEFF/, '')); }
   catch { throw new Error('Invalid candidate manifest JSON'); }
-  validateMetadata(manifest);
-  if (manifest.format !== 1 || !Array.isArray(manifest.artifacts)) throw new Error('Unsupported candidate manifest');
+  if (![1, 2].includes(manifest.format) || !Array.isArray(manifest.artifacts)) throw new Error('Unsupported candidate manifest');
+  validateMetadata(manifest, manifest.format);
   const declared = [], folded = new Set();
   for (const artifact of manifest.artifacts) {
     const path = safeArtifactPath(artifact?.path);
@@ -74,5 +80,6 @@ export async function verifyManifest(root) {
     const bytes = await readFile(resolve(root, artifact.path));
     if (bytes.length !== artifact.bytes || sha256(bytes) !== artifact.sha256) throw new Error(`Candidate content mismatch: ${artifact.path}`);
   }
-  return { revision: manifest.revision, artifacts: actual.length, backendTests: manifest.backendTests, productionApproved: false };
+  return { revision: manifest.revision, artifacts: actual.length, backendTests: manifest.backendTests,
+    toolTests: manifest.toolTests ?? null, productionApproved: false };
 }

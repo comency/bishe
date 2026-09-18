@@ -54,7 +54,9 @@ try {
     try {
         Write-Output ('Fresh source '+$revision+'; bounded offline backend tests and build. No application service startup.')
         Build-Step 'mvn.cmd' @('-q','-DargLine=-Xms32m -Xmx384m','verify') 'backend-verify.log'
-        Build-Step 'node.exe' @('--test','scripts/tests/release-manifest.test.mjs') 'release-tools-tests.log'
+        $nodeTestFiles=@(Get-ChildItem -LiteralPath (Join-Path $sourceRoot 'scripts\tests') -Filter '*.test.mjs' -File | Sort-Object Name | Select-Object -ExpandProperty FullName)
+        if(-not $nodeTestFiles.Count){throw 'Node tool tests are missing from the source snapshot.'}
+        Build-Step 'node.exe' (@('--test')+$nodeTestFiles) 'release-tools-tests.log'
         Push-Location -LiteralPath (Join-Path $sourceRoot 'frontend')
         try {
             Write-Output 'Installing only locked frontend dependencies in the NEW snapshot directory; existing node_modules is untouched.'
@@ -67,6 +69,14 @@ try {
     if(-not $reports.Count){throw 'Backend machine-readable test evidence missing.'}
     foreach($file in $reports){[xml]$report=Get-Content -LiteralPath $file.FullName;$tests+=[int]$report.testsuite.tests;$skipped+=[int]$report.testsuite.skipped;$failures+=[int]$report.testsuite.failures;$errors+=[int]$report.testsuite.errors}
     if($tests -le $skipped -or $failures -ne 0 -or $errors -ne 0){throw 'Backend test summary is not successful.'}
+    $nodeEvidence=Get-Content -LiteralPath (Join-Path $buildRoot 'release-tools-tests.log') -Raw
+    $nodeValues=@{}
+    foreach($label in @('tests','pass','fail','skipped')){
+        $match=[regex]::Match($nodeEvidence,"(?m)^# $label (\d+)\r?$")
+        if(-not $match.Success){throw 'Node tool test summary is missing or malformed.'}
+        $nodeValues[$label]=[int]$match.Groups[1].Value
+    }
+    if($nodeValues.tests -le 0 -or $nodeValues.pass -ne $nodeValues.tests-$nodeValues.skipped -or $nodeValues.fail -ne 0){throw 'Node tool test summary is not successful.'}
     if((git rev-parse HEAD).Trim() -ne $revision -or (git status --porcelain)){throw 'Source revision/worktree changed during build; no candidate finalized.'}
     [void](New-Item -ItemType Directory -Path (Join-Path $candidateRoot 'backend'))
     Copy-Item -LiteralPath (Join-Path $sourceRoot 'target\lost-found-ai-1.0.0.jar') -Destination (Join-Path $candidateRoot 'backend\app.jar')
@@ -78,6 +88,7 @@ try {
         revision=$revision;kind='local-candidate';productionApproved=$false;builtAt=[DateTime]::UtcNow.ToString('o')
         sourceSnapshotBuild=$true;frontendVerified=$true
         backendTests=@{tests=$tests;passed=$tests-$skipped;skipped=$skipped;failures=$failures;errors=$errors}
+        toolTests=@{tests=$nodeValues.tests;passed=$nodeValues.pass;skipped=$nodeValues.skipped;failures=$nodeValues.fail}
         nodeVersion=(& node.exe --version);npmVersion=(& npm.cmd --version)
         javaBinaryVersion=(Get-Item -LiteralPath (Join-Path $javaRoot 'bin\java.exe')).VersionInfo.FileVersion
         sourceArchiveSha256=(Get-FileHash -LiteralPath $sourceZip -Algorithm SHA256).Hash.ToLowerInvariant()

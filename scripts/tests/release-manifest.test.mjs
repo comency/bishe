@@ -5,7 +5,8 @@ import { resolve, join } from 'node:path';
 import { createManifest, verifyManifest, safeArtifactPath } from '../lib/release-manifest.mjs';
 const root = resolve('.local/release-tool-tests'); await mkdir(root, { recursive: true });
 const metadata = () => ({ revision: 'a'.repeat(40), kind: 'local-candidate', productionApproved: false, builtAt: '2026-09-16T00:00:00Z',
-  backendTests: { tests: 3, passed: 2, skipped: 1, failures: 0, errors: 0 }, frontendVerified: true, sourceSnapshotBuild: true });
+  backendTests: { tests: 3, passed: 2, skipped: 1, failures: 0, errors: 0 },
+  toolTests: { tests: 4, passed: 4, skipped: 0, failures: 0 }, frontendVerified: true, sourceSnapshotBuild: true });
 async function fixture() {
   const dir = await mkdtemp(join(root, 'case-'));
   await mkdir(join(dir, 'backend')); await mkdir(join(dir, 'frontend'));
@@ -17,7 +18,17 @@ async function alter(dir, change) {
 }
 test('valid candidate round-trips with explicit skipped-test count', async () => {
   const dir = await fixture(); await createManifest(dir, metadata());
-  const result = await verifyManifest(dir); assert.equal(result.artifacts, 5); assert.equal(result.backendTests.skipped, 1); assert.equal(result.productionApproved, false);
+  const result = await verifyManifest(dir); assert.equal(result.artifacts, 5); assert.equal(result.backendTests.skipped, 1);
+  assert.deepEqual(result.toolTests, metadata().toolTests); assert.equal(result.productionApproved, false);
+});
+test('format 2 requires successful tool-test evidence', async () => {
+  const dir = await fixture(), value = metadata(); delete value.toolTests;
+  await assert.rejects(createManifest(dir, value), /tool test summary/);
+});
+test('legacy format 1 remains verifiable without tool-test evidence', async () => {
+  const dir = await fixture(); await createManifest(dir, metadata());
+  await alter(dir, value => { value.format = 1; delete value.toolTests; });
+  const result = await verifyManifest(dir); assert.equal(result.toolTests, null);
 });
 for (const path of ['../secret', '/absolute', 'C:/secret', 'frontend/../../secret', 'frontend\\secret', 'frontend//x', 'frontend/./x', 'frontend/.env', 'frontend/con.txt', 'frontend/x.', 'credentials.xml'])
   test(`reject unsafe path ${path}`, () => assert.throws(() => safeArtifactPath(path)));
