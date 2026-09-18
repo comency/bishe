@@ -37,7 +37,7 @@ public class WebConfig implements WebMvcConfigurer {
     return Arrays.stream(origins).distinct().toArray(String[]::new);
   }
   @Override public void addInterceptors(InterceptorRegistry registry) {
-    registry.addInterceptor(authInterceptor).addPathPatterns("/**").excludePathPatterns("/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/public/config", "/error");
+    registry.addInterceptor(authInterceptor).addPathPatterns("/**").excludePathPatterns("/api/auth/register", "/api/auth/login", "/api/auth/logout", "/api/public/config", "/api/health/live", "/api/health/ready", "/error");
     registry.addInterceptor(rateLimiter).addPathPatterns("/api/auth/login", "/api/auth/register", "/api/verifications/me", "/api/items/*/claims", "/api/ai/polish", "/api/ai/chat");
   }
   @Override public void addCorsMappings(CorsRegistry registry) {

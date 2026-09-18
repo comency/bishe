@@ -33,9 +33,17 @@ class CorsPolicyTest {
   }
 
   @Configuration @EnableWebMvc static class TestConfiguration {
-    @Bean WebConfig webConfig() throws Exception {
-      var auth=mock(AuthInterceptor.class);var limiter=mock(AccountRateLimitInterceptor.class);
-      when(auth.preHandle(any(),any(),any())).thenReturn(true);when(limiter.preHandle(any(),any(),any())).thenReturn(true);
+    @Bean AuthInterceptor authInterceptor() throws Exception {
+      var auth=mock(AuthInterceptor.class);
+      when(auth.preHandle(any(),any(),any())).thenReturn(true);
+      return auth;
+    }
+    @Bean AccountRateLimitInterceptor rateLimiter() throws Exception {
+      var limiter=mock(AccountRateLimitInterceptor.class);
+      when(limiter.preHandle(any(),any(),any())).thenReturn(true);
+      return limiter;
+    }
+    @Bean WebConfig webConfig(AuthInterceptor auth, AccountRateLimitInterceptor limiter) {
       return new WebConfig(auth,limiter,"http://127.0.0.1:15174,http://localhost:15174");
     }
     @Bean ProbeController probe(){return new ProbeController();}
@@ -44,6 +52,8 @@ class CorsPolicyTest {
     int calls;
     @GetMapping("/api/cors-probe") public String get(){calls++;return "synthetic";}
     @PostMapping("/api/cors-probe") public String post(){calls++;return "synthetic";}
+    @GetMapping("/api/health/live") public String live(){return "UP";}
+    @GetMapping("/api/health/ready") public String ready(){return "UP";}
   }
   private AnnotationConfigWebApplicationContext context;
   private MockMvc mvc;
@@ -71,6 +81,15 @@ class CorsPolicyTest {
     mvc.perform(post("/api/cors-probe").header("Origin","http://127.0.0.1:15174"))
         .andExpect(status().isOk()).andExpect(header().string("Access-Control-Allow-Origin","http://127.0.0.1:15174"));
     assertThat(context.getBean(ProbeController.class).calls).isEqualTo(2);
+  }
+  @Test void healthProbesBypassAuthenticationButNormalApiDoesNot() throws Exception {
+    AuthInterceptor auth=context.getBean(AuthInterceptor.class);
+    mvc.perform(get("/api/health/live")).andExpect(status().isOk()).andExpect(content().string("UP"));
+    mvc.perform(get("/api/health/ready")).andExpect(status().isOk()).andExpect(content().string("UP"));
+    verify(auth,never()).preHandle(any(),any(),any());
+
+    mvc.perform(get("/api/cors-probe")).andExpect(status().isOk());
+    verify(auth).preHandle(any(),any(),any());
   }
   @Test void unneededMethodsAndHeadersAreNotAllowed() throws Exception {
     mvc.perform(options("/api/cors-probe").header("Origin","http://127.0.0.1:15174").header("Access-Control-Request-Method","PATCH"))

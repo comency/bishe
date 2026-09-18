@@ -175,6 +175,8 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 该门禁只负责“明显不安全时拒绝启动”，不会生成真实校园信息、证书或密码。当前要求应用仅监听回环并保持`server.forward-headers-strategy=none`；登录/注册限流仅在直接连接IP命中`TRUSTED_PROXY_ADDRESSES`时按有界`X-Forwarded-For`链识别客户端，异常链回退直接连接IP。正式反向代理仍须终止HTTPS、正确覆盖/追加该头并保留边缘限流。完整变量和未放行项见[正式配置门禁说明](infra/PRODUCTION-CONFIGURATION.md)。
 
+部署探针为公开但仅返回固定状态的`GET /api/health/live`和`GET /api/health/ready`。`live`只证明进程能处理HTTP，不访问依赖；`ready`依次执行MySQL只读`SELECT 1`和Redis `PING`，全部成功返回`200 {"status":"UP"}`，否则返回`503 {"status":"DOWN"}`。两者均`Cache-Control: no-store`，不返回地址、库名或异常详情。正式环境仍只监听回环，应由同机代理/编排器探测，不能把liveness成功当成业务就绪。
+
 ## 跨域访问边界
 
 不再使用通配来源：开发仅允许127.0.0.1/localhost的5174，integration仅15174，modeltrial仅15176；商城15175及其他来源被拒绝。请求只开放业务所需方法和Content-Type/X-Token/Accept，不共享Cookie凭据。CORS允许源仍须通过原有登录、角色、资格和对象权限检查。

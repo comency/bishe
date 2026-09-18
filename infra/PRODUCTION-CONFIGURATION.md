@@ -41,5 +41,6 @@
 - 正式备份频率、RPO/RTO、媒体与数据库一致性窗口、恢复责任和恢复后冒烟尚须签收。
 - 正式AI仍不放行；本地模型测试结果不能改变`production` profile的关闭状态。
 - 启动成功不代表部署成功，仍须按`RELEASE-CHECKLIST.md`核对候选摘要、迁移、权限、真实HTTP/浏览器、观察与回滚。
+- `/api/health/live`只检查进程HTTP，`/api/health/ready`只读检查MySQL与Redis；探针固定返回UP/DOWN且不披露依赖信息。正式代理只能在ready为200后接流量，业务冒烟仍须另做。
 
 实现依据为Spring Boot 3.4的profile-specific配置及外部配置覆盖规则。门禁测试不连接数据库、Redis或网络。
