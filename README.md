@@ -177,6 +177,8 @@ node scripts/check-ai-live-browser.mjs --confirm-local-model-trial --confirm-tes
 
 部署探针为公开但仅返回固定状态的`GET /api/health/live`和`GET /api/health/ready`。`live`只证明进程能处理HTTP，不访问依赖；`ready`依次执行MySQL只读`SELECT 1`和Redis `PING`，全部成功返回`200 {"status":"UP"}`，否则返回`503 {"status":"DOWN"}`。两者均`Cache-Control: no-store`，不返回地址、库名或异常详情。正式环境仍只监听回环，应由同机代理/编排器探测，不能把liveness成功当成业务就绪。
 
+部署后可执行`node scripts/check-deployment.mjs --confirm-read-only --base-url https://实际域名`；本机回环HTTP也允许。工具只发4个无凭据GET，禁止重定向并限制响应体，核对live、ready、公开配置中AI关闭，以及匿名业务接口仍返回401；不会登录、写数据或把响应正文打印到日志。
+
 ## 跨域访问边界
 
 不再使用通配来源：开发仅允许127.0.0.1/localhost的5174，integration仅15174，modeltrial仅15176；商城15175及其他来源被拒绝。请求只开放业务所需方法和Content-Type/X-Token/Accept，不共享Cookie凭据。CORS允许源仍须通过原有登录、角色、资格和对象权限检查。
