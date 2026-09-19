@@ -18,6 +18,15 @@ async function fixture() {
 async function alter(dir, change) { const path = join(dir, 'manifest.json'), value = JSON.parse(await readFile(path)); change(value); await writeFile(path, JSON.stringify(value)); }
 test('valid backup verifies exact inventory and hashes', async () => assert.deepEqual(await verifyBackup(await fixture()),
   { createdAt: '2026-09-18T00:00:00Z', artifacts: 2, mediaFiles: 1, writesQuiesced: true }));
+test('backup inside the explicit RPO window passes', async () => assert.equal((await verifyBackup(await fixture(), {
+  maxAgeHours: 24, nowMs: Date.parse('2026-09-18T23:59:59Z') })).createdAt, '2026-09-18T00:00:00Z'));
+test('backup older than the explicit RPO window fails', async () => await assert.rejects(verifyBackup(await fixture(), {
+  maxAgeHours: 24, nowMs: Date.parse('2026-09-19T00:00:01Z') }), /maximum age/));
+test('future backup time cannot masquerade as fresh', async () => await assert.rejects(verifyBackup(await fixture(), {
+  maxAgeHours: 24, nowMs: Date.parse('2026-09-17T23:54:59Z') }), /in the future/));
+test('invalid RPO limits fail before backup access', async () => await assert.rejects(verifyBackup('not-used', {
+  maxAgeHours: 0 }), /maximum age/));
+test('non-canonical manifest time is rejected', async () => { const dir = await fixture(); await alter(dir, value => { value.createdAt = 'September 18, 2026'; }); await assert.rejects(verifyBackup(dir), /incomplete/); });
 for (const path of ['../secret', '/absolute', 'C:/secret', 'media/../../secret', 'media\\x', 'media//x', 'media/.env', 'other/file'])
   test(`reject unsafe backup path ${path}`, () => assert.throws(() => safeBackupPath(path)));
 test('tampered dump fails hash verification', async () => { const dir = await fixture(); await writeFile(join(dir, 'database.sql'), 'synthetic XXX'); await assert.rejects(verifyBackup(dir), /content mismatch/); });

@@ -98,6 +98,8 @@ try {
     Assert-Check ($restoreSmokeSource -match 'confirm-isolated-restore-smoke' -and $restoreSmokeSource -match "http://127\.0\.0\.1:18082") 'Restore business smoke requires explicit confirmation and a fixed loopback endpoint.'
     Assert-Check (($restoreSmokeSource -split "`n" | Where-Object {$_ -match "method: 'POST'"}).Count -eq 2 -and $restoreSmokeSource -match '/api/auth/login' -and $restoreSmokeSource -match '/api/auth/logout') 'Restore business smoke posts only login/logout and does not request business mutation.'
     Assert-Check ($restoreSmokeSource -match '/api/admin/items/' -and $restoreSmokeSource -match '/api/uploads/images/' -and $restoreSmokeSource -match 'no-store') 'Restore business smoke reads restored item bindings, media bytes and cache policy.'
+    $backupVerifierSource=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'lib\backup-manifest.mjs') -Raw
+    Assert-Check ($backupVerifierSource -match 'maxAgeHours' -and $backupVerifierSource -match 'creation time is in the future') 'Backup verifier supports an explicit RPO age limit and rejects future timestamps.'
     foreach($overrideName in @('SPRING_DATASOURCE_URL','JAVA_TOOL_OPTIONS')){
         $priorOverride=[Environment]::GetEnvironmentVariable($overrideName,'Process')
         try {

@@ -38,7 +38,14 @@ async function inventory(root) {
   if (new Set(folded).size !== folded.length) throw new Error('Case-insensitive duplicate backup paths');
   return result.sort();
 }
-export async function verifyBackup(root) {
+export async function verifyBackup(root, options = {}) {
+  if (options === null || typeof options !== 'object' || Array.isArray(options))
+    throw new Error('Invalid backup verification options');
+  const hasAgeLimit = options.maxAgeHours !== undefined;
+  if (hasAgeLimit && (!Number.isFinite(options.maxAgeHours) || options.maxAgeHours <= 0 || options.maxAgeHours > 87600))
+    throw new Error('Backup maximum age must be a positive number no greater than 87600 hours');
+  const nowMs = options.nowMs ?? Date.now();
+  if (!Number.isFinite(nowMs)) throw new Error('Invalid backup verification clock');
   root = resolve(root);
   const manifestInfo = await lstat(resolve(root, 'manifest.json'));
   if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink() || manifestInfo.size > 2 * 1024 ** 2)
@@ -48,8 +55,14 @@ export async function verifyBackup(root) {
   catch { throw new Error('Invalid backup manifest JSON'); }
   if (manifest.format !== 1 || manifest.writesQuiesced !== true || manifest.databaseDump !== 'database.sql' ||
       manifest.mediaDirectory !== 'media' || !Number.isSafeInteger(manifest.mediaFiles) || manifest.mediaFiles < 0 ||
-      typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt)) || !Array.isArray(manifest.artifacts))
+      typeof manifest.createdAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/.test(manifest.createdAt) ||
+      !Number.isFinite(Date.parse(manifest.createdAt)) || !Array.isArray(manifest.artifacts))
     throw new Error('Unsupported or incomplete backup manifest');
+  if (hasAgeLimit) {
+    const ageMs = nowMs - Date.parse(manifest.createdAt);
+    if (ageMs < -5 * 60 * 1000) throw new Error('Backup creation time is in the future');
+    if (ageMs > options.maxAgeHours * 60 * 60 * 1000) throw new Error('Backup exceeds the required maximum age');
+  }
   const declared = [], folded = new Set();
   for (const artifact of manifest.artifacts) {
     const path = safeBackupPath(artifact?.path);

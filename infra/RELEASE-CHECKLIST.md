@@ -20,7 +20,7 @@
 3. 检查V1–V4及当前Flyway历史，保持JPA validate、Flyway clean关闭，不能用baseline/repair掩盖异常。
 4. 从受保护配置提供密码，不通过命令行/前端配置公开；使用专用最小权限账号，核对管理员初始化只在不存在时创建。
 5. 数据库与私密图片使用相同一致性窗口备份，恢复到独立目标后验证数据、约束、文件摘要和绑定，再做业务冒烟；不要拿备份覆盖仍有新业务写入的原库。
-   可在已经停止入口和后台写入后执行`powershell -NoProfile -File scripts/New-ConsistentBackup.ps1 -CreateBackup -ConfirmWritesQuiesced -Destination <新的绝对目录>`；`mysqldump.exe`不在PATH时另传`-MySqlBin <MySQL的bin目录>`。工具读取当前进程的`DB_*`和`MEDIA_ROOT`，密码仅通过客户端环境传递，拒绝覆盖目录、项目内目标和媒体链接，并生成逐文件SHA-256清单；恢复前以`node scripts/check-backup.mjs <备份目录>`只读核对精确库存和哈希。隔离恢复可用`Restore-ConsistentBackup.ps1`，但仅允许预建空`restore_*`库、单独`RESTORE_DB_*`凭据和全新媒体目录；恢复服务固定监听`127.0.0.1:18082`后，以`node scripts/check-restored-backup.mjs --confirm-isolated-restore-smoke`读取健康、物品详情和绑定媒体并退出会话。工具不会自行停流或删除失败现场，也不代表恢复验收完成。
+   可在已经停止入口和后台写入后执行`powershell -NoProfile -File scripts/New-ConsistentBackup.ps1 -CreateBackup -ConfirmWritesQuiesced -Destination <新的绝对目录>`；`mysqldump.exe`不在PATH时另传`-MySqlBin <MySQL的bin目录>`。工具读取当前进程的`DB_*`和`MEDIA_ROOT`，密码仅通过客户端环境传递，拒绝覆盖目录、项目内目标和媒体链接，并生成逐文件SHA-256清单；恢复前以`node scripts/check-backup.mjs <备份目录>`只读核对精确库存和哈希。确定RPO后还须追加`--max-age-hours <小时>`拒绝过期或未来时间的备份；该参数必须来自已审批的恢复策略，不能由工具替业务决定。隔离恢复可用`Restore-ConsistentBackup.ps1`，但仅允许预建空`restore_*`库、单独`RESTORE_DB_*`凭据和全新媒体目录；恢复服务固定监听`127.0.0.1:18082`后，以`node scripts/check-restored-backup.mjs --confirm-isolated-restore-smoke`读取健康、物品详情和绑定媒体并退出会话。工具不会自行停流或删除失败现场，也不代表恢复验收完成。
 6. 默认AI关闭。真实应用成功链路及主业务并行尚受Redis依赖阻塞；模型单独39组通过不构成正式启用许可。模型仅回环监听，不做公网暴露或隧道。
 7. 正式启动只能使用单独的`production` profile，并按`PRODUCTION-CONFIGURATION.md`从受保护外部配置提供必填值。启动守卫通过只表示未发现已编码的危险配置，不代替本清单其余门禁。
 
