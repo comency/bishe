@@ -29,6 +29,7 @@ function Get-RedisOption {
 try {
     $backupScript = Join-Path $PSScriptRoot 'New-ConsistentBackup.ps1'
     $restoreScript = Join-Path $PSScriptRoot 'Restore-ConsistentBackup.ps1'
+    $restoreSmoke = Join-Path $PSScriptRoot 'check-restored-backup.mjs'
     foreach ($file in @($devScript, $PSCommandPath, (Join-Path $PSScriptRoot 'Test-IsolatedDatabase.ps1'), (Join-Path $PSScriptRoot 'New-LocalRelease.ps1'), $backupScript, $restoreScript)) {
         $tokens = $null
         $parseErrors = $null
@@ -91,6 +92,12 @@ try {
     Assert-Check ($restoreSource -match 'information_schema\.tables' -and $restoreSource -notmatch 'DROP DATABASE|DROP SCHEMA') 'Restore proves the target is empty and never drops a schema.'
     Assert-Check ($restoreSource -match 'forbiddenSql' -and $restoreSource -match 'OUTFILE' -and $restoreSource -match 'DROP.*TABLE') 'Restore rejects database switching, destructive table DDL and server-side file output before connecting.'
     Assert-Check ($restoreSource -match 'SetAccessRuleProtection' -and $restoreSource -match 'Set-Acl') 'Restored private media receives an inheritance-protected owner-only ACL.'
+    & node.exe --check $restoreSmoke
+    Assert-Check ($LASTEXITCODE -eq 0) 'Restore business smoke script has valid Node syntax.'
+    $restoreSmokeSource=Get-Content -LiteralPath $restoreSmoke -Raw
+    Assert-Check ($restoreSmokeSource -match 'confirm-isolated-restore-smoke' -and $restoreSmokeSource -match "http://127\.0\.0\.1:18082") 'Restore business smoke requires explicit confirmation and a fixed loopback endpoint.'
+    Assert-Check (($restoreSmokeSource -split "`n" | Where-Object {$_ -match "method: 'POST'"}).Count -eq 2 -and $restoreSmokeSource -match '/api/auth/login' -and $restoreSmokeSource -match '/api/auth/logout') 'Restore business smoke posts only login/logout and does not request business mutation.'
+    Assert-Check ($restoreSmokeSource -match '/api/admin/items/' -and $restoreSmokeSource -match '/api/uploads/images/' -and $restoreSmokeSource -match 'no-store') 'Restore business smoke reads restored item bindings, media bytes and cache policy.'
     foreach($overrideName in @('SPRING_DATASOURCE_URL','JAVA_TOOL_OPTIONS')){
         $priorOverride=[Environment]::GetEnvironmentVariable($overrideName,'Process')
         try {
