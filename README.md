@@ -30,6 +30,25 @@
 
 商城的 `3306`、`6379`、`5173`、`15175` 不属于本项目。测试库虽然单独授权，仍与开发库共用本机 MySQL 进程；数据库停机/磁盘故障测试需另建隔离实例。
 
+## 独立毕业设计演示工具
+
+新增 `scripts/Start-Demo.ps1` / `scripts/Stop-Demo.ps1`，为本机答辩准备独立持久化演示环境，不需要修改或启动 MySQL80 Windows 服务。它使用现有 MySQL 8.0.41 二进制（`E:\MySQL\MySQL Server 8.0`）、JDK 21（`C:\Program Files\Java\jdk-21`）、Node.js 和 Docker Desktop。后端 JAR 与 `frontend/dist` 须事先完成构建。
+
+**当前验收边界（2026-09-25）：** 静态页面服务10项、演示运行时17项回归通过；修复首次初始化进程过快退出的识别竞态后，完整首启被可用内存低于2 GiB拦截。真实业务HTTP、浏览器及停止后复用启动仍待补测，不能把这些工具标记为已完成现场验收，不能用于生产部署。详见[本轮交付记录](docs/graduation-delivery-20260925.md)。
+
+```powershell
+# 必须先打开 Docker Desktop；不会停止商城或其他用户程序。
+.\scripts\Start-Demo.ps1 -StartDemo
+# 显式显示本机演示管理员密码；不要录屏或把输出写入日志。
+.\scripts\Start-Demo.ps1 -ShowDemoAccess
+# 只停止精确登记的演示进程，保留数据、图片和测试 Redis。
+.\scripts\Stop-Demo.ps1 -StopDemo
+# 不启动数据库、Docker或应用的脚本回归。
+.\scripts\Test-DemoRuntime.ps1
+```
+
+演示 MySQL 监听 `127.0.0.1:13308`，使用 `demo_lost_found`；Redis使用本项目测试实例16380的DB13，带独立归属标记，不清空已有数据。页面15174将API固定代理到18080，与现有集成环境端口互斥；遇到占用会拒绝启动，不抢占进程。`.local/demo` 保存专属数据和Windows DPAPI凭据，不进入Git；管理员随机密码只在显式要求时显示。AI保持关闭。初始化失败目录会保留，不能删除后盲目重跑；跨机器运行须重新核对二进制路径和配置。
+
 ## 首次准备
 
 要求 JDK 21、Maven 3.9.x、Node 22.18+（22.x）、npm 10/11、Docker Desktop Linux 容器，以及本地 MySQL 8.0。具体前端依赖由 `frontend/package-lock.json` 锁定。不要修改商城工具或全局 Java 版本来启动本项目。
