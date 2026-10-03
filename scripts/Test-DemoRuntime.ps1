@@ -34,6 +34,28 @@ foreach($file in @('Start-Demo.ps1','Stop-Demo.ps1')){
     Assert-DemoTest $refused ('Missing mutation flag is refused: '+$file)
 }
 
+$tempRoot=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+$aclProbe=Join-Path $tempRoot ('bishe-demo-acl-'+[Guid]::NewGuid().ToString('N'))
+try{
+    Protect-DemoDirectory $aclProbe
+    $firstAcl=Get-Acl -LiteralPath $aclProbe
+    Protect-DemoDirectory $aclProbe
+    $secondAcl=Get-Acl -LiteralPath $aclProbe
+    $currentUser=[Security.Principal.WindowsIdentity]::GetCurrent().User
+    Assert-DemoTest ($firstAcl.AreAccessRulesProtected -and $secondAcl.AreAccessRulesProtected) 'New private demo directory is protected and restart validation is idempotent.'
+    Assert-DemoTest ($secondAcl.GetOwner([Security.Principal.SecurityIdentifier]) -eq $currentUser) 'Demo directory remains owned by the creating Windows user.'
+}finally{
+    if(Test-Path -LiteralPath $aclProbe -PathType Container){
+        $resolvedProbe=[IO.Path]::GetFullPath($aclProbe)
+        $allowedPrefix=$tempRoot+[IO.Path]::DirectorySeparatorChar
+        if(-not $resolvedProbe.StartsWith($allowedPrefix,[StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($resolvedProbe) -notmatch '^bishe-demo-acl-[a-f0-9]{32}$'){
+            throw 'Refusing to remove an unexpected ACL test directory.'
+        }
+        Remove-Item -LiteralPath $resolvedProbe -Force
+    }
+}
+
 $probe=New-ExitedProbe 0
 try{
     Assert-DemoTest $probe.HasExited 'Success probe has already exited before initialization wait.'
@@ -50,8 +72,14 @@ try{
 
 $record=Get-DemoProcessRecord $PID 'test-probe'
 Assert-DemoTest (Test-DemoProcess $record) 'Current process identity matches before mutation.'
+$roundTrip=($record | ConvertTo-Json -Compress) | ConvertFrom-Json
+Assert-DemoTest ($roundTrip.createdUtc -is [datetime] -or $roundTrip.createdUtc -is [string]) 'JSON round trip retains a supported timestamp value.'
+Assert-DemoTest (Test-DemoProcess $roundTrip) 'Serialized active process identity remains verifiable.'
 $record.createdUtc='2000-01-01T00:00:00.0000000Z'
 Assert-DemoTest (-not(Test-DemoProcess $record)) 'A reused PID with a different creation time cannot be stopped.'
+$roundTripDate=[datetime]$roundTrip.createdUtc
+$roundTrip.createdUtc=$roundTripDate.AddSeconds(1).ToString('o')
+Assert-DemoTest (-not(Test-DemoProcess $roundTrip)) 'Serialized process identity still rejects a different creation time.'
 $rejected=$false
 try{Assert-DemoRecord $layout $record}catch{$rejected=$_.Exception.Message -eq 'Unknown demo process role.'}
 Assert-DemoTest $rejected 'Unknown recorded process roles are refused.'

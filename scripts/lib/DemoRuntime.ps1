@@ -32,8 +32,22 @@ function Assert-DemoPath {
 function Protect-DemoDirectory {
     param([string]$Path)
     Assert-DemoPath $Path
-    if(-not(Test-Path -LiteralPath $Path -PathType Container)){[void](New-Item -ItemType Directory -Path $Path)}
     $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User
+    if(Test-Path -LiteralPath $Path -PathType Container){
+        # A previously protected demo directory must be validated, not have its
+        # ACL rewritten on every restart (which may require elevated privileges).
+        $existing=Get-Acl -LiteralPath $Path
+        $existingOwner=$existing.GetOwner([Security.Principal.SecurityIdentifier])
+        $rules=$existing.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
+        $ownerFullControl=@($rules | Where-Object {
+            $_.IdentityReference -eq $owner -and $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+            (($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq [Security.AccessControl.FileSystemRights]::FullControl)
+        }).Count -gt 0
+        if($existing.AreAccessRulesProtected -and $existingOwner -eq $owner -and $ownerFullControl -and
+            -not @($existing.Access | Where-Object {$_.IsInherited}).Count){return}
+        throw 'Existing demo directory ACL is not already private for this Windows user. No ACL was changed; inspect permissions before retrying.'
+    }
+    [void](New-Item -ItemType Directory -Path $Path)
     $acl=New-Object Security.AccessControl.DirectorySecurity
     $acl.SetOwner($owner);$acl.SetAccessRuleProtection($true,$false)
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($owner,'FullControl','ContainerInherit,ObjectInherit','None','Allow')))
@@ -125,8 +139,18 @@ function Test-DemoProcess {
     param($Record)
     $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$Record.pid)
     if(-not $process){return $false}
+    try{
+        # ConvertFrom-Json may turn an ISO timestamp string back into DateTime.
+        # Compare ticks so both string and DateTime records retain sub-second identity.
+        $recordCreatedUtc=$Record.createdUtc
+        if($recordCreatedUtc -isnot [datetime]){
+            $recordCreatedUtc=[datetime]::Parse([string]$recordCreatedUtc,[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::RoundtripKind)
+        }
+        $recordCreatedTicks=$recordCreatedUtc.ToUniversalTime().Ticks
+        $processCreatedTicks=$process.CreationDate.ToUniversalTime().Ticks
+    }catch{return $false}
     return $process.ExecutablePath -eq $Record.executable -and $process.CommandLine -ceq $Record.commandLine -and
-        $process.CreationDate.ToUniversalTime().ToString('o') -eq $Record.createdUtc
+        $processCreatedTicks -eq $recordCreatedTicks
 }
 
 function Assert-DemoRecord {
