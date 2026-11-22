@@ -30,7 +30,7 @@ class EnvironmentBaselineTest {
   @Test void defaultEndpointsDoNotUseMallServices() {
     var values = config("application.yml");
     assertThat(resolve(values, "spring.datasource.url"))
-        .startsWith("jdbc:mysql://127.0.0.1:13306/lost_found?");
+        .startsWith("jdbc:mysql://127.0.0.1:3306/lost_found?");
     assertThat(resolve(values, "spring.datasource.username")).isEqualTo("lost_found_app");
     assertThat(resolve(values, "spring.data.redis.host")).isEqualTo("127.0.0.1");
     assertThat(resolve(values, "spring.data.redis.port")).isEqualTo("16379");
@@ -50,7 +50,7 @@ class EnvironmentBaselineTest {
   @Test void integrationRequiresSeparateCredentialsAndEndpoints() {
     var values = config("application-integration.yml");
     assertThat(resolve(values, "spring.datasource.url"))
-        .startsWith("jdbc:mysql://127.0.0.1:13306/lost_found_test?");
+        .startsWith("jdbc:mysql://127.0.0.1:3306/lost_found_test?");
     assertThat(values.get("spring.datasource.username")).isEqualTo("${TEST_DB_USERNAME}");
     assertThat(values.get("spring.datasource.password")).isEqualTo("${TEST_DB_PASSWORD}");
     assertThat(resolve(values, "spring.data.redis.port")).isEqualTo("16380");
