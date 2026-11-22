@@ -16,11 +16,18 @@ $deadline = (Get-Date).AddSeconds($Seconds)
 while ((Get-Date) -lt $deadline) {
     if ($StopFile -and (Test-Path -LiteralPath $StopFile)) { break }
     $system = Get-CimInstance Win32_OperatingSystem
-    $gpu = & nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader,nounits
-    if ($LASTEXITCODE -ne 0) { throw 'GPU sampling failed.' }
-    $values = $gpu[0] # Normalize a single GPU string below.
-    if ($gpu -is [string]) { $values = $gpu }
-    $values = $values -split ','
+    $gpuAvailable = $null -ne (Get-Command nvidia-smi -CommandType Application -ErrorAction SilentlyContinue)
+    $gpuUsedMiB = $null
+    $gpuFreeMiB = $null
+    if ($gpuAvailable) {
+        $gpu = & nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader,nounits
+        if ($LASTEXITCODE -ne 0) { throw 'GPU sampling failed.' }
+        $values = $gpu[0] # Normalize a single GPU string below.
+        if ($gpu -is [string]) { $values = $gpu }
+        $values = $values -split ','
+        $gpuUsedMiB = [int]$values[0]
+        $gpuFreeMiB = [int]$values[1]
+    }
     $processSamples = @($targets | ForEach-Object {
         $target = $_; $current = Get-Process -Id $target.id -ErrorAction SilentlyContinue
         if (-not $current) {
@@ -44,7 +51,7 @@ while ((Get-Date) -lt $deadline) {
         at = (Get-Date).ToString('o')
         stage = $Stage
         freeMemoryMiB = [math]::Round($system.FreePhysicalMemory / 1KB, 1)
-        gpuUsedMiB = [int]$values[0]; gpuFreeMiB = [int]$values[1]
+        gpuAvailable = $gpuAvailable; gpuUsedMiB = $gpuUsedMiB; gpuFreeMiB = $gpuFreeMiB
         ollamaWorkingSetMiB = [math]::Round((Get-Process -Name ollama -ErrorAction SilentlyContinue | Measure-Object -Property WorkingSet64 -Sum).Sum / 1MB, 1)
         processes = $processSamples
     } | ConvertTo-Json -Depth 5 -Compress

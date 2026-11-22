@@ -69,7 +69,9 @@ function Select-Java21 {
     if (-not [string]::IsNullOrWhiteSpace($JavaHome)) {
         $candidates = @($JavaHome)
     } else {
-        $candidates = @('C:\Program Files\Java\jdk-21')
+        $candidates = @()
+        if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) { $candidates += $env:JAVA_HOME }
+        $candidates += 'C:\Program Files\Java\jdk-21'
         if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
             $candidates += Join-Path $env:USERPROFILE '.jdks\ms-21.0.7'
         }
@@ -164,7 +166,7 @@ function Assert-BackendConfiguration {
         throw ('Backend not started. Remove inherited Spring overrides from this terminal first: ' + ($overrides -join ', '))
     }
     $expected = @{
-        DB_HOST = '127.0.0.1'; DB_PORT = '13306'; DB_NAME = 'lost_found'
+        DB_HOST = '127.0.0.1'; DB_PORT = '3306'; DB_NAME = 'lost_found'
         REDIS_HOST = '127.0.0.1'; REDIS_PORT = '16379'; REDIS_DATABASE = '0'
         SERVER_ADDRESS = '127.0.0.1'; SERVER_PORT = '8080'
     }
@@ -253,7 +255,7 @@ try {
                 Invoke-CheckedTool -Tool (Get-ToolPath 'node.exe') -Arguments @('--version')
                 Invoke-CheckedTool -Tool (Get-ToolPath 'npm.cmd') -Arguments @('--version')
                 Invoke-LocalCompose -ComposeArguments @('version')
-                foreach ($port in @(8080, 5174, 13306, 16379, 18080, 16380)) {
+                foreach ($port in @(8080, 5174, 3306, 16379, 18080, 16380)) {
                     $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
                     $state = if ($listeners.Count -gt 0) { 'LISTENING' } else { 'NOT LISTENING' }
                     Write-Host ("Port {0}: {1}" -f $port, $state)

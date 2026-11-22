@@ -59,7 +59,7 @@ Check ($guardProcess.ExitCode -eq 1 -and $guardError -match 'confirm-local-model
 $guardProcess.Dispose()
 }
 $sample = & (Join-Path $PSScriptRoot 'Sample-AiResources.ps1') -Seconds 1 -Stage 'self-test' -TrackedProcessId $PID | Select-Object -First 1 | ConvertFrom-Json
-Check ($sample.freeMemoryMiB -gt 0 -and $sample.gpuFreeMiB -ge 0) 'Resource sampler returns host and GPU measurements.'
+Check ($sample.freeMemoryMiB -gt 0 -and (($sample.gpuAvailable -and $sample.gpuFreeMiB -ge 0) -or (-not $sample.gpuAvailable -and $null -eq $sample.gpuFreeMiB))) 'Resource sampler reports host memory and optional GPU measurements.'
 Check ($sample.stage -eq 'self-test' -and $sample.processes.Count -eq 1 -and $sample.processes[0].id -eq $PID) 'Sampler records only explicitly selected process identities.'
 Check ($sample.processes[0].state -eq 'running' -and $sample.processes[0].workingSetMiB -gt 0 -and $sample.processes[0].privateMemoryMiB -gt 0 -and $sample.processes[0].cpuSeconds -ge 0) 'Sampler separates working set, private memory and cumulative CPU.'
 $stopRejected=$false

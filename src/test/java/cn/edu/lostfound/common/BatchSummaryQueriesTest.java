@@ -20,7 +20,8 @@ class BatchSummaryQueriesTest {
   final JdbcTemplate jdbc=mock(JdbcTemplate.class);
   final MediaService media=new MediaService(jdbc,mock(VerificationApi.class),mock(AccountApi.class),Clock.systemUTC(),
       mock(PlatformTransactionManager.class),".local/unused-summary-unit",12000000,8192,24);
-  final ClaimApi claims=new ClaimApi(mock(ClaimStore.class),mock(AuditApi.class),Clock.systemUTC(),jdbc);
+  final ClaimApi claims=new ClaimApi(mock(ClaimStore.class),mock(AuditApi.class),Clock.systemUTC(),jdbc,
+      mock(cn.edu.lostfound.notification.NotificationOutbox.class));
   @Test void fiftyIdsIssueExactlyTwoParameterizedQueries(){
     when(jdbc.query(any(PreparedStatementCreator.class),any(RowMapper.class))).thenReturn(List.of());
     var ids=LongStream.rangeClosed(1,50).boxed().toList();
