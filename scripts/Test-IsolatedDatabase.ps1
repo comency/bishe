@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <# Disposable rehearsal instance only. No Windows service changes or existing database connections. #>
 [CmdletBinding()]
-param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark,[switch]$IncludeRichHttpData,[switch]$IncludeHttpDatabaseOutage,[string]$CandidateDirectory='')
+param([switch]$ConfirmIsolatedRehearsal,[switch]$IncludeClaimIntegration,[switch]$IncludeServiceBenchmark,[switch]$IncludeLocalModel,[switch]$ConfirmLocalModel,[switch]$IncludeDatabaseOutage,[switch]$IncludeHttpBenchmark,[switch]$IncludeRichHttpData,[switch]$IncludeHttpDatabaseOutage,[string]$CandidateDirectory='')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if (-not $ConfirmIsolatedRehearsal) { throw 'Explicit -ConfirmIsolatedRehearsal required before creating any files or processes.' }
@@ -115,6 +115,13 @@ try {
         $grant=$schema.Replace('_','\_')
         [void](Run-Sql ('CREATE DATABASE `'+$schema+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES ON `'+$grant+'`.* TO ''rehearsal_runner''@''localhost'';') $rootPassword)
     }
+    $claimDbPassword=$null;$claimAdminPassword=$null
+    if($IncludeClaimIntegration){
+        $claimDbPassword=New-Secret;$claimAdminPassword=New-Secret
+        $claimGrant='lost_found_test'.Replace('_','\_')
+        $claimSql="CREATE DATABASE ``lost_found_test`` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; CREATE USER 'lost_found_test_app'@'localhost' IDENTIFIED BY '$claimDbPassword'; GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES ON ``$claimGrant``.* TO 'lost_found_test_app'@'localhost';"
+        [void](Run-Sql $claimSql $rootPassword)
+    }
     $variables=@{
         JAVA_HOME=$javaRoot; PATH=(Join-Path $javaRoot 'bin')+';'+$env:PATH; MAVEN_OPTS='-Xms32m -Xmx192m'
         RUN_MIGRATION_REHEARSAL='true'; REHEARSAL_DB_USERNAME='rehearsal_runner'; REHEARSAL_DB_PASSWORD=$runnerPassword
@@ -126,18 +133,22 @@ try {
         RUN_HTTP_BENCHMARK=([string][bool]$IncludeHttpBenchmark).ToLowerInvariant()
         RUN_HTTP_RICH_DATA=([string][bool]$IncludeRichHttpData).ToLowerInvariant()
         HTTP_CANDIDATE_JAR=$candidateJar; HTTP_CANDIDATE_SHA256=$candidateHash; HTTP_CANDIDATE_REVISION=$candidateRevision
+        RUN_CLAIM_DB_TESTS=([string][bool]$IncludeClaimIntegration).ToLowerInvariant()
+        AI_ENABLED='false'; SPRING_CACHE_TYPE='none'
     }
+    if($IncludeClaimIntegration){$variables.TEST_DB_USERNAME='lost_found_test_app';$variables.TEST_DB_PASSWORD=$claimDbPassword;$variables.TEST_DB_PORT='13307';$variables.TEST_ADMIN_PASSWORD=$claimAdminPassword}
     foreach($name in $variables.Keys){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$variables[$name],'Process')}
     Push-Location -LiteralPath $projectRoot
     try {
         Write-Output ('Running isolated migration/restore checks and explicitly selected benchmarks on own 13307 instance; evidence: '+$runRoot)
         $selectedTests=@('MigrationRehearsalTest')
+        if($IncludeClaimIntegration){$selectedTests+='ClaimDatabaseIntegrationTest'}
         if($IncludeServiceBenchmark){$selectedTests+='ServiceLoadBenchmarkTest'}
         if($IncludeDatabaseOutage){$selectedTests+='DatabaseOutageRehearsalTest'}
         if($IncludeHttpDatabaseOutage){$selectedTests+='HttpDatabaseOutageTest'}
         if($IncludeHttpBenchmark){$selectedTests+='HttpLoadBenchmarkTest'}
         $testSelection='-Dtest='+($selectedTests -join ',')
-        $testHeap=if($IncludeServiceBenchmark){'-DargLine=-Xms64m -Xmx768m'}else{'-DargLine=-Xms32m -Xmx384m'}
+        $testHeap=if($IncludeServiceBenchmark -or $IncludeClaimIntegration){'-DargLine=-Xms64m -Xmx768m'}else{'-DargLine=-Xms32m -Xmx384m'}
         & mvn.cmd -q $testHeap $testSelection test *> (Join-Path $runRoot 'migration-tests.log')
         if($LASTEXITCODE -ne 0){throw 'Selected isolated checks failed; see protected local test log.'}
     } finally {Pop-Location}

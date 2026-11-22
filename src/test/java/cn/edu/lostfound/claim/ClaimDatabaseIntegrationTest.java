@@ -3,7 +3,10 @@ package cn.edu.lostfound.claim;
 import cn.edu.lostfound.audit.AuditApi;
 import cn.edu.lostfound.common.BusinessException;
 import cn.edu.lostfound.config.CampusProperties;
+import cn.edu.lostfound.dto.ApiResponse;
 import cn.edu.lostfound.dto.*;
+import cn.edu.lostfound.notification.NotificationDelivery;
+import cn.edu.lostfound.notification.NotificationService;
 import cn.edu.lostfound.repository.UserRepository;
 import cn.edu.lostfound.security.UserContext;
 import cn.edu.lostfound.service.*;
@@ -40,6 +43,8 @@ class ClaimDatabaseIntegrationTest {
   @Autowired JdbcTemplate jdbc;
   @Autowired CampusProperties campus;
   @Autowired PlatformTransactionManager transactions;
+  @Autowired NotificationDelivery notificationDelivery;
+  @Autowired NotificationService notificationService;
   @SpyBean AuditApi audit;
   long owner,applicant,other,admin,itemId;
   @BeforeEach void setup(){
@@ -72,6 +77,72 @@ class ClaimDatabaseIntegrationTest {
     var edit=new ItemDtos.Update();edit.title="Changed title";edit.description="Edited synthetic";edit.type="FOUND";edit.expectedVersion=itemVersion();items.update(itemId,owner,edit);
     assertThat(((Map<?,?>)claims.get(id,applicant,false,1,10).get("item")).get("title")).isEqualTo("Synthetic claim item");
   }
+
+  @Test void lostNoticeAcceptsFoundLeadAndReversesHandoverRolesWithoutExposingContactsEarly() {
+    var request = new ItemDtos.Create();
+    request.title = "Synthetic lost key";
+    request.description = "Synthetic lost notice";
+    request.type = "LOST";
+    long lostItemId = id(items.create(owner, request));
+    items.review(lostItemId, admin, new ItemDtos.Review("APPROVED", 0L, null, null));
+
+    long responseId = id(claims.create(lostItemId, applicant,
+        new ClaimDtos.Create(jdbc.queryForObject("SELECT row_version FROM items WHERE id=?", Long.class, lostItemId),
+            "Synthetic found near the library", "PRIVATE_FINDER_CONTACT")));
+    var pending = claims.get(responseId, applicant, false, 1, 10);
+    assertThat(((Map<?, ?>) pending.get("item")).get("type")).isEqualTo("LOST");
+    assertThat(pending).containsEntry("counterpartContact", null);
+    failure(() -> claims.confirm(responseId, owner, true), "FORBIDDEN");
+
+    claims.accept(responseId, owner, new ClaimDtos.Accept(0L, "PRIVATE_OWNER_CONTACT"));
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox WHERE claim_id=? AND recipient_user_id=? AND event_type='RESPONSE_ACCEPTED'", Long.class, responseId, applicant)).isEqualTo(1L);
+    assertThat(claims.get(responseId, applicant, false, 1, 10))
+        .containsEntry("counterpartContact", "PRIVATE_OWNER_CONTACT");
+    assertThat(claims.get(responseId, owner, false, 1, 10))
+        .containsEntry("counterpartContact", "PRIVATE_FINDER_CONTACT");
+    claims.confirm(responseId, applicant, true);
+    claims.confirm(responseId, owner, false);
+
+    assertThat(claims.get(responseId, owner, false, 1, 10)).containsEntry("status", "COMPLETED");
+    assertThat(jdbc.queryForObject("SELECT close_reason FROM items WHERE id=?", String.class, lostItemId))
+        .isEqualTo("RETURNED");
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox WHERE claim_id=? AND recipient_user_id=? AND event_type='HANDOVER_CONFIRMED'", Long.class, responseId, owner)).isEqualTo(1L);
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox WHERE claim_id=? AND recipient_user_id=? AND event_type='RECEIPT_CONFIRMED'", Long.class, responseId, applicant)).isEqualTo(1L);
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox WHERE claim_id=? AND event_type='RETURN_COMPLETED'", Long.class, responseId)).isEqualTo(2L);
+  }
+
+  @Test void claimEventsCreatePrivateIdempotentNotificationsAndRespectOwnership() {
+    long claimId = apply(applicant);
+    var outbox = jdbc.queryForMap("SELECT event_key,recipient_user_id,event_type FROM notification_outbox WHERE claim_id=?", claimId);
+    assertThat(outbox).containsEntry("recipient_user_id", owner).containsEntry("event_type", "RESPONSE_RECEIVED");
+    assertThat(outbox.get("event_key").toString()).doesNotContain("PRIVATE_EVIDENCE", "PRIVATE_APPLICANT_CONTACT");
+
+    notificationDelivery.deliverPending();
+    notificationDelivery.deliverPending();
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox WHERE claim_id=? AND processed_at IS NOT NULL", Long.class, claimId)).isEqualTo(1L);
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE user_id=? AND related_id=?", Long.class, owner, claimId)).isEqualTo(1L);
+
+    UserContext.set(owner, "USER");
+    @SuppressWarnings("unchecked") var page = (ItemDtos.Page<Map<String,Object>>) notificationService.page(1, 20, false).data();
+    long noticeId = ((Number) page.records().getFirst().get("id")).longValue();
+    assertThat(page.records().getFirst()).doesNotContainKeys("contact", "evidence", "internalNote");
+    UserContext.set(applicant, "USER");
+    failure(() -> notificationService.markRead(noticeId), "NOT_ACCESSIBLE");
+    UserContext.set(owner, "USER");
+    notificationService.markRead(noticeId);
+    notificationService.markRead(noticeId);
+    assertThat(notificationService.unreadCount().data()).isEqualTo(Map.of("count", 0L));
+  }
+
+  @Test void claimAndOutboxAreRolledBackTogether() {
+    long before = jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox", Long.class);
+    assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+      apply(applicant);
+      throw new IllegalStateException("synthetic rollback");
+    })).isInstanceOf(IllegalStateException.class);
+    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox", Long.class)).isEqualTo(before);
+  }
+
   @Test void batchClaimSummaryNeverReturnsAnotherApplicantsIdAcrossStates(){
     long accepted=apply(applicant),waiting=apply(other);accept(accepted);
     for(long actor:List.of(owner,applicant,other,admin)){

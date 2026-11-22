@@ -1,0 +1,94 @@
+name: Verify and package
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.0.41
+        env:
+          MYSQL_DATABASE: lost_found_test
+          MYSQL_USER: lost_found_test_app
+          MYSQL_PASSWORD: ci-only-test-password
+          MYSQL_ROOT_PASSWORD: ci-only-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-root-password"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+      redis:
+        image: redis:7.4.2
+        ports:
+          - 16380:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify backend and MySQL integration tests
+        env:
+          RUN_CLAIM_DB_TESTS: 'true'
+          AI_ENABLED: 'false'
+          TEST_DB_USERNAME: lost_found_test_app
+          TEST_DB_PASSWORD: ci-only-test-password
+          TEST_ADMIN_PASSWORD: Synthetic-Only-CI-Password-92!
+          SPRING_DATA_REDIS_HOST: 127.0.0.1
+          SPRING_DATA_REDIS_PORT: '16380'
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Verify frontend
+        working-directory: frontend
+        run: npm ci && npm run verify
+      - name: Create commit-linked build manifest
+        shell: bash
+        run: |
+          mkdir -p artifact
+          cp target/lost-found-ai-1.0.0.jar artifact/backend.jar
+          tar -czf artifact/frontend-dist.tar.gz -C frontend dist
+          sha256sum artifact/backend.jar artifact/frontend-dist.tar.gz > artifact/SHA256SUMS
+          printf 'commit=%s\n' "$GITHUB_SHA" > artifact/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: campus-lost-found-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+  powershell-scripts:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run PowerShell script checks
+        shell: pwsh
+        run: |
+          ./scripts/Test-DevScripts.ps1
+          ./scripts/Test-AiTrialScripts.ps1
+          ./scripts/Test-DemoRuntime.ps1

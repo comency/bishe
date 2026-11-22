@@ -72,13 +72,22 @@ onBeforeUnmount(() => { ++sequence; controller.abort(); item.value = null; match
         <p class="muted">物品 #{{ item.id }} · 记录版本 {{ item.version }} · 内容第 {{ item.contentVersion }} 版</p>
         <p v-if="item.reviewReason">审核反馈：{{ item.reviewReason }}</p><p v-if="admin && item.internalNote">管理内部备注：{{ item.internalNote }}</p>
         <div v-if="!admin" class="button-row"><RouterLink v-if="owner && item.status !== 'CLOSED'" :to="`/items/${item.id}/edit`" class="secondary-button">编辑并重新送审</RouterLink><button class="secondary-button" @click="findMatches">查找相似物品</button></div>
-        <p v-if="!admin" class="item-footnote">联系方式不公开展示，仅在认领被接受后向交接双方开放。</p>
-        <p v-if="item.hasAcceptedClaim">已有认领进入交接中，暂不能接受新申请。</p>
-        <RouterLink v-if="!admin && item.myClaimId" :to="`/claims/${item.myClaimId}`" class="secondary-button">查看我的认领记录</RouterLink>
-        <RouterLink v-if="owner || admin" :to="`${admin ? '/admin/claims' : '/claims/incoming'}?itemId=${item.id}`" class="secondary-button">查看本物品的认领</RouterLink>
+        <p v-if="!admin" class="item-footnote">联系方式不公开展示，仅在回应被接受后向交接双方开放。</p>
+        <p v-if="item.hasAcceptedClaim">已有回应进入交接中，暂不能接受新申请。</p>
+        <RouterLink v-if="!admin && item.myClaimId" :to="`/claims/${item.myClaimId}`" class="secondary-button">查看我的认领/线索记录</RouterLink>
+        <RouterLink v-if="owner || admin" :to="`${admin ? '/admin/claims' : '/claims/incoming'}?itemId=${item.id}`" class="secondary-button">查看本物品的认领/线索</RouterLink>
         <ul v-if="matches.length"><li v-for="match in matches" :key="match.id"><RouterLink :to="`/items/${match.id}`">{{ match.title }}</RouterLink> · 相似度 {{ match.score }}%</li></ul>
       </article>
-      <form v-if="!admin && !owner && item.type === 'FOUND' && item.status === 'APPROVED' && !item.hasAcceptedClaim && !item.myClaimId" class="form-card item-form" @submit.prevent="applyClaim"><h2>申请认领</h2><p>请描述只有物主知道的特征。每件物品只能申请一次，结束后不能重提。</p><fieldset :disabled="saving || stale"><label>认领特征说明<textarea v-model="identification" required maxlength="1000" /></label><label>本次交接联系方式<input v-model="claimContact" required maxlength="100" autocomplete="off" /></label><label class="check-label"><input v-model="claimConfirmed" type="checkbox" required />确认物品属于本人，并同意提供本次交接信息</label><button class="primary-button">提交认领申请</button></fieldset></form>
+      <form v-if="!admin && !owner && item.status === 'APPROVED' && !item.hasAcceptedClaim && !item.myClaimId" class="form-card item-form" @submit.prevent="applyClaim">
+        <h2>{{ item.type === 'LOST' ? '提交拾获线索' : '申请认领' }}</h2>
+        <p>{{ item.type === 'LOST' ? '如果你拾到了这件物品，请描述拾获情况。发布者接受后，双方才能查看本次交接联系方式。' : '请描述只有物主知道的特征。发布者接受后，双方才能查看本次交接联系方式。' }}每件物品只能回应一次，结束后不能重提。</p>
+        <fieldset :disabled="saving || stale">
+          <label>{{ item.type === 'LOST' ? '拾获情况与物品特征' : '认领特征说明' }}<textarea v-model="identification" required maxlength="1000" /></label>
+          <label>本次交接联系方式<input v-model="claimContact" required maxlength="100" autocomplete="off" /></label>
+          <label class="check-label"><input v-model="claimConfirmed" type="checkbox" required />{{ item.type === 'LOST' ? '确认这是本人拾获的线索，并同意提供本次交接信息' : '确认物品属于本人，并同意提供本次交接信息' }}</label>
+          <button class="primary-button">{{ item.type === 'LOST' ? '提交拾获线索' : '提交认领申请' }}</button>
+        </fieldset>
+      </form>
       <form v-if="admin && item.status === 'PENDING'" class="form-card item-form" @submit.prevent="act('review')">
         <h2>审核当前内容</h2>
         <fieldset :disabled="saving || stale"><label>决定<select v-model="decision"><option value="APPROVED">通过并公开</option><option value="REJECTED">驳回修改</option></select></label><label v-if="decision === 'REJECTED'">驳回原因<textarea v-model="reason" required maxlength="500" /></label><label>内部备注（仅管理员可读）<textarea v-model="internalNote" maxlength="500" /></label><label class="check-label"><input v-model="confirmed" type="checkbox" required />已核对本页当前内容及图片</label><button class="primary-button" type="submit">{{ saving ? '处理中…' : '提交审核决定' }}</button></fieldset>

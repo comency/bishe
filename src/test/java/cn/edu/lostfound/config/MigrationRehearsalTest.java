@@ -17,11 +17,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import static org.assertj.core.api.Assertions.*;
 
-/** Opt-in, real MySQL on an independently initialized process; never uses application credentials. */
+/** 显式启用后在独立初始化的进程中连接真实 MySQL；绝不使用应用凭据。 */
 @EnabledIfEnvironmentVariable(named="RUN_MIGRATION_REHEARSAL",matches="true")
 class MigrationRehearsalTest {
   private static final List<String> TABLES=List.of("users","items","campus_verifications",
-      "verification_applications","business_logs","media_files","item_images","claims","flyway_schema_history");
+      "verification_applications","business_logs","media_files","item_images","claims",
+      "notification_outbox","notifications","flyway_schema_history");
   private String prefix,password;
   private Path directory;
 
@@ -54,9 +55,9 @@ class MigrationRehearsalTest {
   }
   private Flyway flyway(String suffix,String target) {return flyway(suffix,target,"classpath:db/migration");}
 
-  @Test void emptySchemaMigratesToV4AndRepeatedStartupDoesNotChangeHistory() {
+  @Test void emptySchemaMigratesToV6AndRepeatedStartupDoesNotChangeHistory() {
     var migration=flyway("empty","latest");
-    assertThat(migration.migrate().migrationsExecuted).isEqualTo(4);
+    assertThat(migration.migrate().migrationsExecuted).isEqualTo(6);
     assertThat(jdbc("empty").queryForList("SHOW TABLES",String.class)).containsExactlyInAnyOrderElementsOf(TABLES);
     var before=jdbc("empty").queryForList("SELECT version,checksum,success FROM flyway_schema_history ORDER BY installed_rank");
     migration.validate(); assertThat(migration.migrate().migrationsExecuted).isZero();
@@ -70,7 +71,7 @@ class MigrationRehearsalTest {
     String longPhone="9".repeat(150),description="合成旧物品".repeat(400);
     db.update("INSERT INTO users(id,username,password,nickname,phone,role,created_at) VALUES(1,'legacy_synthetic','not-a-real-hash',?,?, 'USER',NULL)","旧昵称".repeat(60),longPhone);
     db.update("INSERT INTO items(id,publisher_id,title,description,type,status,created_at,updated_at) VALUES(1,1,'Synthetic legacy',?,'LOST','APPROVED','2026-01-02 03:04:05.123456',NULL)",description);
-    assertThat(flyway("legacy","latest").migrate().migrationsExecuted).isEqualTo(3);
+    assertThat(flyway("legacy","latest").migrate().migrationsExecuted).isEqualTo(5);
     var user=db.queryForMap("SELECT phone,contact,is_test,created_at,nickname FROM users WHERE id=1");
     assertThat(user.get("phone")).isEqualTo(longPhone);assertThat(user.get("contact")).isNull();
     assertThat(user.get("is_test").toString()).isIn("true","1");assertThat(user.get("created_at")).isNull();
@@ -91,7 +92,7 @@ class MigrationRehearsalTest {
     assertThatThrownBy(()->flyway("closed","latest").migrate()).isInstanceOf(FlywayException.class);
     assertThat(db.queryForObject("SELECT status FROM items WHERE id=1",String.class)).isEqualTo("CLOSED");
     assertThat(db.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE version='4' AND success=1",Long.class)).isZero();
-    // MySQL DDL is not one multi-migration transaction. V2 remains; no repair/clean is attempted.
+    // MySQL DDL 不属于一个跨迁移的大事务；V2 会保留，不尝试修复或清理。
     assertThat(db.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE version='2' AND success=1",Long.class)).isEqualTo(1L);
   }
 
@@ -159,6 +160,8 @@ class MigrationRehearsalTest {
     db.update("INSERT INTO media_files(id,uploader_id,storage_key,mime_type,size_bytes,width,height,sha256,lifecycle,created_at,updated_at) VALUES(1,1,'synthetic.png','image/png',?,2,2,?,'BOUND',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",bytes,hash);
     db.update("INSERT INTO item_images(item_id,media_id,display_order,bound_at) VALUES(1,1,1,UTC_TIMESTAMP(6))");
     db.update("INSERT INTO claims(id,item_id,publisher_id,applicant_id,item_title_snapshot,item_type_snapshot,item_content_version_snapshot,evidence,applicant_contact_snapshot,publisher_contact_snapshot,status,accepted_at,created_at,updated_at) VALUES(1,1,1,2,'合成恢复水杯','FOUND',1,'SYNTHETIC_PRIVATE_EVIDENCE','SYNTHETIC_CONTACT_A','SYNTHETIC_CONTACT_B','ACCEPTED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
+    db.update("INSERT INTO notification_outbox(event_key,recipient_user_id,claim_id,item_type_snapshot,event_type,created_at,next_attempt_at,processed_at) VALUES('claim:1:v1:CLAIM_ACCEPTED:u2',2,1,'FOUND','RESPONSE_ACCEPTED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
+    db.update("INSERT INTO notifications(user_id,source_event_key,type,title,summary,related_type,related_id,created_at) VALUES(2,'claim:1:v1:CLAIM_ACCEPTED:u2','RESPONSE_ACCEPTED','Synthetic notification','No private data','CLAIM',1,UTC_TIMESTAMP(6))");
     db.update("INSERT INTO business_logs(event_type,actor_id,actor_kind,subject_user_id,item_id,claim_id,trace_id,occurred_at) VALUES('CLAIM_ACCEPTED',1,'USER',2,1,1,'synthetic-restore-trace',UTC_TIMESTAMP(6))");
   }
   private Map<String,String> snapshot(JdbcTemplate db) throws Exception {

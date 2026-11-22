@@ -8,7 +8,7 @@ import PageNavigation from '../components/PageNavigation.vue'
 const route = useRoute(), auth = useAuthStore()
 const admin = computed(() => route.path.startsWith('/admin/'))
 const incoming = computed(() => route.path === '/claims/incoming')
-const heading = computed(() => admin.value ? '认领管理' : incoming.value ? '收到的认领' : '我的认领')
+const heading = computed(() => admin.value ? '认领与线索管理' : incoming.value ? '收到的认领/线索' : '我的认领/线索')
 const status = ref(''), itemId = ref(''), publisherId = ref(''), applicantId = ref('')
 const result = ref<Page<ClaimSummary> | null>(null), loading = ref(false), error = ref('')
 let sequence = 0, controller = new AbortController()
@@ -38,9 +38,9 @@ onBeforeUnmount(() => { ++sequence; controller.abort(); result.value = null })
     </form>
     <p v-if="loading" role="status">正在读取…</p><p v-if="error" class="error-message" role="alert">{{ error }}</p>
     <template v-if="result">
-      <p v-if="!result.records.length" class="state-panel">暂无符合条件的认领记录。</p>
+      <p v-if="!result.records.length" class="state-panel">暂无符合条件的认领或线索记录。</p>
       <div class="items-grid"><article v-for="claim in result.records" :key="claim.id" class="item-card">
-        <div class="item-card-top"><span>认领 #{{ claim.id }}</span><strong>{{ claimStatuses[claim.status] }}</strong></div>
+        <div class="item-card-top"><span>{{ claim.item.type === 'LOST' ? '线索' : '认领' }} #{{ claim.id }}</span><strong>{{ claimStatuses[claim.status] }}</strong></div>
         <h2><RouterLink :to="`${admin ? '/admin/claims' : '/claims'}/${claim.id}`">{{ claim.item.title }}</RouterLink></h2>
         <p>物品 #{{ claim.item.itemId }} · 申请时内容第 {{ claim.item.contentVersion }} 版</p><p class="muted">{{ dateTime(claim.createdAt) }}</p>
         <p v-if="claim.status === 'ACCEPTED'">交出{{ claim.handedOverAt ? '已确认' : '待确认' }} · 收到{{ claim.receivedAt ? '已确认' : '待确认' }}</p><p v-if="claim.endReason">{{ claim.endReason }}</p>

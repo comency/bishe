@@ -18,3 +18,5 @@ app:
     allowed-origins: http://127.0.0.1:15176,http://localhost:15176
   ai-trial:
     confirmed: ${AI_LOCAL_TRIAL_CONFIRMED:false}
+  notifications:
+    enabled: false

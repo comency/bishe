@@ -6,7 +6,7 @@ export const claimActions: Record<string, string> = {
   CLAIM_RESOLVED_CONTINUE: '管理处置：继续等待', CLAIM_RESOLVED_TERMINATE: '管理处置：异常终止',
 }
 export interface ClaimSummary {
-  id: number; item: { itemId: number; title: string; type: 'FOUND'; contentVersion: number }
+  id: number; item: { itemId: number; title: string; type: 'LOST' | 'FOUND'; contentVersion: number }
   publisherId: number; applicantId: number; status: keyof typeof claimStatuses; version: number
   createdAt: string; acceptedAt: string | null; handedOverAt: string | null; receivedAt: string | null
   completedAt: string | null; endReason: string | null; canConfirm: boolean

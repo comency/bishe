@@ -11,10 +11,20 @@ const settings = useConfigStore()
 const router = useRouter()
 const route = useRoute()
 const signingOut = ref(false)
+const unreadNotificationCount = ref(0)
 const initials = computed(() => auth.session?.nickname.slice(0, 1) ?? '拾')
 let expiryTimer: ReturnType<typeof setInterval> | undefined
-onMounted(() => { void settings.load(); expiryTimer = setInterval(auth.checkExpiry, 1000) })
-onBeforeUnmount(() => clearInterval(expiryTimer))
+let notificationTimer: ReturnType<typeof setInterval> | undefined
+const notificationUpdateEvent = 'campus-notifications-updated'
+async function refreshUnreadNotifications() {
+  if (!auth.canUseBusiness) { unreadNotificationCount.value = 0; return }
+  try {
+    const result = await auth.client<{ count: number }>('/api/notifications/unread-count')
+    unreadNotificationCount.value = result.count
+  } catch { /* keep navigation usable when notifications are temporarily unavailable */ }
+}
+onMounted(() => { void settings.load(); void refreshUnreadNotifications(); expiryTimer = setInterval(auth.checkExpiry, 1000); notificationTimer = setInterval(refreshUnreadNotifications, 60000); globalThis.addEventListener(notificationUpdateEvent, refreshUnreadNotifications) })
+onBeforeUnmount(() => { clearInterval(expiryTimer); clearInterval(notificationTimer); globalThis.removeEventListener(notificationUpdateEvent, refreshUnreadNotifications) })
 
 watch(() => auth.canUseBusiness, allowed => {
   if (!allowed && auth.hasSession && route.meta.requiresVerification) void router.replace('/verification')
@@ -22,6 +32,7 @@ watch(() => auth.canUseBusiness, allowed => {
 watch(() => auth.revision, () => {
   if (auth.hasSession && route.meta.requiresVerification && !auth.canUseBusiness) void router.replace('/verification')
 })
+watch(() => auth.revision, () => { void refreshUnreadNotifications() })
 watch(() => auth.isAdmin, allowed => {
   if (!allowed && auth.hasSession && route.meta.requiresAdmin) void router.replace('/verification')
 })
@@ -58,8 +69,9 @@ async function signOut() {
       <nav>
         <RouterLink v-if="auth.canUseBusiness" to="/items" class="nav-link"><span aria-hidden="true">▦</span> 物品大厅</RouterLink>
         <RouterLink v-if="auth.canUseBusiness" to="/items/mine" class="nav-link">我的发布</RouterLink>
-        <RouterLink v-if="auth.canUseBusiness" to="/claims/mine" class="nav-link">我的认领</RouterLink>
-        <RouterLink v-if="auth.canUseBusiness" to="/claims/incoming" class="nav-link">收到的认领</RouterLink>
+        <RouterLink v-if="auth.canUseBusiness" to="/claims/mine" class="nav-link">我的认领/线索</RouterLink>
+        <RouterLink v-if="auth.canUseBusiness" to="/claims/incoming" class="nav-link">收到的认领/线索</RouterLink>
+        <RouterLink v-if="auth.canUseBusiness" to="/notifications" class="nav-link">站内通知<span v-if="unreadNotificationCount" class="notification-count">{{ unreadNotificationCount > 99 ? '99+' : unreadNotificationCount }}</span></RouterLink>
         <RouterLink v-if="auth.canUseBusiness" to="/assistant" class="nav-link">智能使用助手</RouterLink>
         <template v-if="auth.hasSession">
           <RouterLink to="/verification" class="nav-link"><span aria-hidden="true">✓</span> 校园认证</RouterLink>

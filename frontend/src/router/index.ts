@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth'
 // Only implemented, same-origin routes can be login return destinations.
 export function safeReturnTo(value: unknown): string {
   if (typeof value !== 'string' || /[\\\r\n]/.test(value)) return '/items'
-  return /^\/(?:items(?:\/(?:new|mine|\d+(?:\/edit)?))?|claims\/(?:mine|incoming|\d+)|assistant|profile|verification|admin\/(?:(?:verifications|items|claims)(?:\/\d+)?|logs))(?:\?[^#]*)?$/.test(value) ? value : '/items'
+  return /^\/(?:items(?:\/(?:new|mine|\d+(?:\/edit)?))?|claims\/(?:mine|incoming|\d+)|notifications|assistant|profile|verification|admin\/(?:(?:verifications|items|claims)(?:\/\d+)?|logs))(?:\?[^#]*)?$/.test(value) ? value : '/items'
 }
 
 export function createAppRouter(pinia: Pinia, history: RouterHistory = createWebHistory()) {
@@ -14,6 +14,7 @@ export function createAppRouter(pinia: Pinia, history: RouterHistory = createWeb
     routes: [
       { path: '/', redirect: '/items' },
       { path: '/assistant', component: () => import('../views/AssistantView.vue'), meta: { title: '智能使用助手', requiresAuth: true, requiresVerification: true } },
+      { path: '/notifications', component: () => import('../views/NotificationsView.vue'), meta: { title: '站内通知', requiresAuth: true, requiresVerification: true } },
       { path: '/claims/mine', component: () => import('../views/ClaimsView.vue'), meta: { title: '我的认领', requiresAuth: true, requiresVerification: true } },
       { path: '/claims/incoming', component: () => import('../views/ClaimsView.vue'), meta: { title: '收到的认领', requiresAuth: true, requiresVerification: true } },
       { path: '/claims/:id(\\d+)', component: () => import('../views/ClaimDetailView.vue'), meta: { title: '认领详情', requiresAuth: true, requiresVerification: true } },

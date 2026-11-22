@@ -18,7 +18,7 @@ const { result, snapshot, busy, error, run, clear } = useAiRequest('chat', () =>
       <li>先在<RouterLink to="/verification">校园认证</RouterLink>提交申请，由管理员人工核验。登录不等于在校身份已通过。</li>
       <li>在<RouterLink to="/items/new">发布启事</RouterLink>填写物品事实，人工内容审核通过后才公开。修改内容会重新送审。</li>
       <li>在<RouterLink to="/items">物品大厅</RouterLink>查找线索。只能申请他人已公开的招领启事，同人同物只申请一次。</li>
-      <li>发布者接受后才向双方开放本次交接联系方式。可在<RouterLink to="/claims/mine">我的认领</RouterLink>或<RouterLink to="/claims/incoming">收到的认领</RouterLink>查看进展。</li>
+      <li>发布者接受后才向双方开放本次交接联系方式。可在<RouterLink to="/claims/mine">我的认领/线索</RouterLink>或<RouterLink to="/claims/incoming">收到的认领/线索</RouterLink>查看进展。</li>
       <li>实际交接后，发布者确认交出、申请者确认收到；只有双方确认才显示已归还。已有单方确认不能直接取消，有争议请联系支持人员。</li>
       <li>资格过期或被撤销后须按认证页面说明处理。智能助手不能恢复资格或替管理员审核。</li>
     </ol><p>支持渠道：{{ config.config?.supportContact || '请查看校园认证页面的支持说明。' }}</p></article>
